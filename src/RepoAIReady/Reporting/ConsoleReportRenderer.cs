@@ -1,14 +1,27 @@
 using RepoAIReady.Rules;
 using Spectre.Console;
+using Spectre.Console.Rendering;
 
 namespace RepoAIReady.Reporting;
 
 public sealed class ConsoleReportRenderer
 {
+	private readonly IAnsiConsole _console;
+
+	public ConsoleReportRenderer()
+		: this(AnsiConsole.Console)
+	{
+	}
+
+	internal ConsoleReportRenderer(IAnsiConsole console)
+	{
+		_console = console;
+	}
+
 	public void Render(IReadOnlyList<AiReadinessReport> reports, ReportRun run)
 	{
-		AnsiConsole.Write(new Rule("[bold cyan]AI Readiness Results[/]").RuleStyle("cyan"));
-		AnsiConsole.WriteLine();
+		_console.Write(new Rule("[bold cyan]AI Readiness Results[/]").RuleStyle("cyan"));
+		_console.WriteLine();
 
 		var table = new Table()
 			.Border(TableBorder.Rounded)
@@ -20,62 +33,64 @@ public sealed class ConsoleReportRenderer
 		foreach (var report in reports.OrderByDescending(r => r.OverallScore))
 		{
 			table.AddRow(
-				Markup.Escape(report.Repo),
-				ScoreMarkup(report.OverallScore, 100),
-				StatusMarkup(report.OverallScore, 100),
-				Markup.Escape(report.RepositoryType));
+				TextCell(report.Repo),
+				MarkupCell(ScoreMarkup(report.OverallScore, 100)),
+				MarkupCell(StatusMarkup(report.OverallScore, 100)),
+				TextCell(report.RepositoryType));
 		}
 
-		AnsiConsole.Write(table);
-		AnsiConsole.WriteLine();
+		_console.Write(table);
+		_console.WriteLine();
 
 		foreach (var report in reports.OrderByDescending(r => r.OverallScore))
 		{
 			RenderRepositoryDashboard(report);
 		}
 
-		AnsiConsole.MarkupLineInterpolated($"[green]Detailed report written to[/] {run.Directory.FullName}");
+		_console.MarkupLineInterpolated($"[green]Detailed report written to[/] {run.Directory.FullName}");
 	}
 
-	private static void RenderRepositoryDashboard(AiReadinessReport report)
+	private void RenderRepositoryDashboard(AiReadinessReport report)
 	{
-		AnsiConsole.Write(new Rule($"[bold]{Markup.Escape(report.Repo)}[/] [dim]({Markup.Escape(report.RepositoryType)})[/]").LeftJustified());
+		_console.Write(new Rule($"[bold]{Markup.Escape(report.Repo)}[/] [dim]({Markup.Escape(report.RepositoryType)})[/]").LeftJustified());
 
 		var areas = new Table()
 			.Border(TableBorder.SimpleHeavy)
 			.AddColumn("Area")
 			.AddColumn(new TableColumn("Score").RightAligned())
 			.AddColumn("Status")
-			.AddColumn("Next action");
+			.AddColumn(new TableColumn("Next action") { Width = 56 });
 
 		foreach (var area in Areas(report))
 		{
 			areas.AddRow(
-				Markup.Escape(area.Name),
-				ScoreMarkup(area.Score.Score, 20),
-				StatusMarkup(area.Score.Score, 20),
-				Markup.Escape(Trim(area.Score.Gaps.FirstOrDefault() ?? "No immediate remediation needed.", 58)));
+				TextCell(area.Name),
+				MarkupCell(ScoreMarkup(area.Score.Score, 20)),
+				MarkupCell(StatusMarkup(area.Score.Score, 20)),
+				TextCell(NormalizeDetail(area.Score.Gaps.FirstOrDefault() ?? "No immediate remediation needed.")));
 		}
 
-		AnsiConsole.Write(areas);
+		_console.Write(areas);
 		RenderInlineList("Strengths", "green", report.TopStrengths, maxItems: 3);
 		RenderInlineList("Remediation actions", "yellow", PrioritizedRemediationActions(report), maxItems: 5);
 		RenderInlineList("Uncertainties", "grey", report.Uncertainties, maxItems: 3);
-		AnsiConsole.WriteLine();
+		_console.WriteLine();
 	}
 
-	private static void RenderInlineList(string title, string color, IReadOnlyList<string> items, int maxItems)
+	private void RenderInlineList(string title, string color, IReadOnlyList<string> items, int maxItems)
 	{
 		if (items.Count == 0)
 		{
 			return;
 		}
 
-		AnsiConsole.MarkupLine($"[bold {color}]{Markup.Escape(title)}[/]");
+		_console.Write(MarkupCell($"[bold {color}]{Markup.Escape(title)}[/]"));
+		_console.WriteLine();
 		var index = 1;
 		foreach (var item in items.Where(static item => !string.IsNullOrWhiteSpace(item)).Take(maxItems))
 		{
-			AnsiConsole.MarkupLine($"  [dim]{index}.[/] {Markup.Escape(Trim(item, 120))}");
+			_console.Write(MarkupCell($"  [dim]{index}.[/] {Markup.Escape(NormalizeDetail(item))}"));
+			_console.WriteLine();
 			index++;
 		}
 	}
@@ -139,10 +154,15 @@ public sealed class ConsoleReportRenderer
 				: "[red]At risk[/]";
 	}
 
-	private static string Trim(string value, int maxLength)
+	private static Markup MarkupCell(string markup) =>
+		new(markup) { Overflow = Overflow.Fold };
+
+	private static IRenderable TextCell(string text) =>
+		MarkupCell(Markup.Escape(text));
+
+	internal static string NormalizeDetail(string value)
 	{
-		var normalized = value.ReplaceLineEndings(" ").Trim();
-		return normalized.Length <= maxLength ? normalized : normalized[..(maxLength - 1)] + "…";
+		return value.ReplaceLineEndings(" ").Trim();
 	}
 }
 
