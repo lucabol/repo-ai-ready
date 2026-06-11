@@ -1,0 +1,50 @@
+name: ci
+
+on:
+  push:
+    branches:
+      - main
+      - master
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  build-test-pack:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup .NET
+        uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: 9.0.x
+
+      - name: Restore
+        run: dotnet restore RepoAIReady.sln
+
+      - name: Build
+        run: dotnet build RepoAIReady.sln --configuration Release --no-restore
+
+      - name: Test
+        run: dotnet test RepoAIReady.sln --configuration Release --no-build
+
+      - name: Pack
+        run: dotnet pack src/RepoAIReady/RepoAIReady.csproj --configuration Release --no-build --output artifacts/nupkg
+
+      - name: Smoke test tool package
+        shell: bash
+        run: |
+          set -euo pipefail
+          tool_path="$(mktemp -d)"
+          dotnet tool install RepoAIReady --tool-path "$tool_path" --add-source artifacts/nupkg --no-cache
+          "$tool_path/repo-ai-ready" --help
+
+      - name: Upload package artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: nupkg
+          path: artifacts/nupkg/*.nupkg

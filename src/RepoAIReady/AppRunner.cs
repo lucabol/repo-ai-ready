@@ -1,3 +1,4 @@
+using System.Reflection;
 using RepoAIReady.Agent;
 using RepoAIReady.Cli;
 using RepoAIReady.GitHub;
@@ -13,6 +14,18 @@ public static class AppRunner
 {
 	public static async Task<int> RunAsync(string[] args, CancellationToken cancellationToken)
 	{
+		if (IsHelpCommand(args))
+		{
+			Console.WriteLine(AppOptions.Usage);
+			return 0;
+		}
+
+		if (IsVersionCommand(args))
+		{
+			Console.WriteLine(GetVersion());
+			return 0;
+		}
+
 		AppOptions options;
 		try
 		{
@@ -115,4 +128,15 @@ public static class AppRunner
 			JudgeBackend.Deterministic => new RuleBasedReadinessChatClient(new RuleBasedReadinessEvaluator()),
 			_ => throw new UsageException($"Unsupported backend: {options.Backend}")
 		};
+
+	private static bool IsHelpCommand(IReadOnlyList<string> args) =>
+		args.Count == 1 && args[0] is "--help" or "-h" or "-?";
+
+	private static bool IsVersionCommand(IReadOnlyList<string> args) =>
+		args.Count == 1 && args[0] is "--version" or "-v";
+
+	private static string GetVersion() =>
+		typeof(AppRunner).Assembly.GetCustomAttribute<AssemblyInformationalVersionAttribute>()?.InformationalVersion
+		?? typeof(AppRunner).Assembly.GetName().Version?.ToString()
+		?? "unknown";
 }

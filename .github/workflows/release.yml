@@ -1,0 +1,67 @@
+name: release
+
+on:
+  push:
+    tags:
+      - v*.*.*
+
+permissions:
+  contents: write
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    env:
+      NUGET_API_KEY: ${{ secrets.NUGET_API_KEY }}
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup .NET
+        uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: 9.0.x
+
+      - name: Derive package version
+        shell: bash
+        run: |
+          set -euo pipefail
+          version="${GITHUB_REF_NAME#v}"
+          echo "PACKAGE_VERSION=$version" >> "$GITHUB_ENV"
+
+      - name: Restore
+        run: dotnet restore RepoAIReady.sln
+
+      - name: Build
+        run: dotnet build RepoAIReady.sln --configuration Release --no-restore /p:ContinuousIntegrationBuild=true
+
+      - name: Test
+        run: dotnet test RepoAIReady.sln --configuration Release --no-build
+
+      - name: Pack
+        run: dotnet pack src/RepoAIReady/RepoAIReady.csproj --configuration Release --no-build --output artifacts/nupkg /p:PackageVersion=${{ env.PACKAGE_VERSION }} /p:ContinuousIntegrationBuild=true
+
+      - name: Smoke test tool package
+        shell: bash
+        run: |
+          set -euo pipefail
+          tool_path="$(mktemp -d)"
+          dotnet tool install RepoAIReady --tool-path "$tool_path" --add-source artifacts/nupkg --no-cache --version "$PACKAGE_VERSION"
+          "$tool_path/repo-ai-ready" --version
+
+      - name: Publish to NuGet.org
+        if: env.NUGET_API_KEY != ''
+        run: dotnet nuget push "artifacts/nupkg/*.nupkg" --source https://api.nuget.org/v3/index.json --api-key "$NUGET_API_KEY" --skip-duplicate
+
+      - name: Create or update GitHub Release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          if gh release view "$GITHUB_REF_NAME" >/dev/null 2>&1; then
+            gh release upload "$GITHUB_REF_NAME" artifacts/nupkg/*.nupkg --clobber
+          else
+            gh release create "$GITHUB_REF_NAME" artifacts/nupkg/*.nupkg --generate-notes --title "$GITHUB_REF_NAME"
+          fi

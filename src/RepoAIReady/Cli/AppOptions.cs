@@ -16,7 +16,9 @@ public sealed record AppOptions(
 {
 	public const string Usage = """
 		Usage:
-		  RepoAIReady <judge.md> <org/repo> [org/repo ...] [--output <dir>] [--format console|markdown|json|all] [--backend copilot|openai|deterministic] [--env-file <path>] [--github-token <token>] [--copilot-token <token>] [--openai-key <key>] [--openai-endpoint <uri>] [--model <model>] [--min-score <0-100>]
+		  repo-ai-ready <judge.md> <org/repo> [org/repo ...] [--output <dir>] [--format console|markdown|json|all] [--backend copilot|openai|deterministic] [--env-file <path>] [--github-token <token>] [--copilot-token <token>] [--openai-key <key>] [--openai-endpoint <uri>] [--model <model>] [--min-score <0-100>]
+		  repo-ai-ready --help
+		  repo-ai-ready --version
 
 		Environment:
 		  RepoAIReady loads .env from the current directory by default. Use --env-file <path> to load another file.
@@ -24,9 +26,9 @@ public sealed record AppOptions(
 		  GITHUB_TOKEN/GH_TOKEN are only used to collect repository evidence. By default, the Copilot backend uses your logged-in Copilot CLI/SDK account; use COPILOT_TOKEN only when you explicitly want token-based Copilot auth.
 
 		Examples:
-		  RepoAIReady ai-readiness-llm-judge.md microsoft/vscode
-		  RepoAIReady --judge ai-readiness-llm-judge.md microsoft/vscode dotnet/runtime --format all --output reports
-		  RepoAIReady ai-readiness-llm-judge.md microsoft/vscode --backend deterministic
+		  repo-ai-ready ai-readiness-llm-judge.md microsoft/vscode
+		  repo-ai-ready --judge ai-readiness-llm-judge.md microsoft/vscode dotnet/runtime --format all --output reports
+		  repo-ai-ready ai-readiness-llm-judge.md microsoft/vscode --backend deterministic
 		""";
 
 	public static AppOptions Parse(IReadOnlyList<string> args)

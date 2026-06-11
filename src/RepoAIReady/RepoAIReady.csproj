@@ -5,6 +5,22 @@
     <TargetFramework>net9.0</TargetFramework>
     <ImplicitUsings>enable</ImplicitUsings>
     <Nullable>enable</Nullable>
+    <RollForward>LatestMajor</RollForward>
+
+    <PackAsTool>true</PackAsTool>
+    <ToolCommandName>repo-ai-ready</ToolCommandName>
+    <PackageId>RepoAIReady</PackageId>
+    <VersionPrefix>0.1.0</VersionPrefix>
+    <Authors>Luca Bolognese</Authors>
+    <Company>Luca Bolognese</Company>
+    <Description>CLI tool that evaluates GitHub repositories for AI coding-agent readiness.</Description>
+    <PackageTags>github;ai;copilot;agent;readiness;cli;dotnet-tool</PackageTags>
+    <PackageProjectUrl>https://github.com/lucabol/repo-ai-ready</PackageProjectUrl>
+    <RepositoryUrl>https://github.com/lucabol/repo-ai-ready.git</RepositoryUrl>
+    <RepositoryType>git</RepositoryType>
+    <PackageLicenseExpression>MIT</PackageLicenseExpression>
+    <PackageReadmeFile>README.md</PackageReadmeFile>
+    <PackageOutputPath>..\..\artifacts\nupkg</PackageOutputPath>
   </PropertyGroup>
 
   <ItemGroup>
@@ -14,6 +30,11 @@
     <PackageReference Include="Octokit" Version="14.0.0" />
     <PackageReference Include="Spectre.Console" Version="0.56.0" />
     <PackageReference Include="System.Text.Json" Version="10.0.8" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <None Include="..\..\README.md" Pack="true" PackagePath="\" />
+    <None Include="..\..\LICENSE" Pack="true" PackagePath="\" />
   </ItemGroup>
 
 </Project>
