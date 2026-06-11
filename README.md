@@ -24,10 +24,16 @@ RepoAIReady is a .NET command-line tool that evaluates GitHub repositories for A
 
 ## Installation
 
-Install the public tool package from NuGet.org:
+Install the latest preview package from NuGet.org:
 
 ```powershell
-dotnet tool install --global RepoAIReady
+dotnet tool install --global RepoAIReady --prerelease
+```
+
+If RepoAIReady is already installed, update it with:
+
+```powershell
+dotnet tool update --global RepoAIReady --prerelease
 ```
 
 Then run it with the `repo-ai-ready` command:
