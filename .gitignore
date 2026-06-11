@@ -1,0 +1,14 @@
+.env
+.env.*
+!.env.example
+
+bin/
+obj/
+TestResults/
+coverage/
+*.user
+*.suo
+.vs/
+
+reports-*/
+tmp-*/

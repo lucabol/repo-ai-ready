@@ -1,0 +1,96 @@
+using RepoAIReady.Cli;
+
+namespace RepoAIReady.Tests;
+
+public sealed class AppOptionsTests
+{
+	[Fact]
+	public void Parse_AcceptsJudgeFileAndMultipleRepos()
+	{
+		var options = AppOptions.Parse([
+			"--judge", "ai-readiness-llm-judge.md",
+			"microsoft/vscode",
+			"dotnet/runtime",
+			"--output", "out",
+			"--format", "all",
+			"--min-score", "75"
+		]);
+
+		Assert.Equal("ai-readiness-llm-judge.md", options.JudgeFile.Name);
+		Assert.Equal(["microsoft/vscode", "dotnet/runtime"], options.Repositories.Select(r => r.FullName).ToArray());
+		Assert.Equal(ReportFormat.All, options.Format);
+		Assert.Equal(JudgeBackend.Copilot, options.Backend);
+		Assert.Equal(75, options.MinScore);
+	}
+
+	[Fact]
+	public void Parse_LoadsGitHubTokenFromEnvironmentValues()
+	{
+		var options = AppOptions.Parse(
+			["judge.md", "microsoft/vscode"],
+			new Dictionary<string, string> { ["GITHUB_TOKEN"] = "from-env-file" });
+
+		Assert.Equal("from-env-file", options.GitHubToken);
+	}
+
+	[Fact]
+	public void Parse_CommandLineTokenOverridesEnvironmentValues()
+	{
+		var options = AppOptions.Parse(
+			["judge.md", "microsoft/vscode", "--github-token", "from-cli"],
+			new Dictionary<string, string> { ["GITHUB_TOKEN"] = "from-env-file" });
+
+		Assert.Equal("from-cli", options.GitHubToken);
+	}
+
+	[Fact]
+	public void Parse_DoesNotUseGitHubTokenAsCopilotToken()
+	{
+		var options = AppOptions.Parse(
+			["judge.md", "microsoft/vscode"],
+			new Dictionary<string, string> { ["GITHUB_TOKEN"] = "repo-read-token" });
+
+		Assert.Equal("repo-read-token", options.GitHubToken);
+		Assert.Null(options.CopilotToken);
+	}
+
+	[Fact]
+	public void Parse_LoadsCopilotTokenSeparately()
+	{
+		var options = AppOptions.Parse(
+			["judge.md", "microsoft/vscode"],
+			new Dictionary<string, string>
+			{
+				["GITHUB_TOKEN"] = "repo-read-token",
+				["COPILOT_TOKEN"] = "copilot-token"
+			});
+
+		Assert.Equal("repo-read-token", options.GitHubToken);
+		Assert.Equal("copilot-token", options.CopilotToken);
+	}
+
+	[Fact]
+	public void Parse_AcceptsEnvFileOption()
+	{
+		var options = AppOptions.Parse(["judge.md", "microsoft/vscode", "--env-file", "secrets.env"], new Dictionary<string, string>());
+
+		Assert.Equal("secrets.env", options.EnvFile?.Name);
+	}
+
+	[Fact]
+	public void Parse_AcceptsExplicitBackends()
+	{
+		var deterministic = AppOptions.Parse(["judge.md", "microsoft/vscode", "--backend", "deterministic"]);
+		var openAi = AppOptions.Parse(["judge.md", "microsoft/vscode", "--backend", "openai"]);
+
+		Assert.Equal(JudgeBackend.Deterministic, deterministic.Backend);
+		Assert.Equal(JudgeBackend.OpenAi, openAi.Backend);
+	}
+
+	[Fact]
+	public void Parse_RejectsMalformedRepo()
+	{
+		var ex = Assert.Throws<UsageException>(() => AppOptions.Parse(["judge.md", "not-a-repo"]));
+		Assert.Contains("org/repo", ex.Message);
+	}
+}
