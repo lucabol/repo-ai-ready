@@ -392,6 +392,20 @@ Repository type: <single_repo | monorepo | large_repo>
 }
 ```
 
+### Concise machine-readable strings
+
+The JSON report is rendered in console tables and lists, so keep each string concise and self-contained. Do not insert manual line breaks for terminal width; return plain single-line strings and let renderers wrap them. Never truncate with ellipses.
+
+Use these target lengths unless a slightly longer item is needed to preserve important evidence:
+
+- `top_strengths`: one evidence-backed sentence per item, target 100-120 characters.
+- `highest_impact_improvements`: one concrete action per item, target 100-140 characters.
+- `fundamentals.*.evidence`: one short fact or cited path per item, target 80-120 characters.
+- `fundamentals.*.gaps`: one short missing capability or action per item, target 80-120 characters.
+- `uncertainties`: one specific uncertainty per item, target 100-140 characters.
+
+Prefer splitting unrelated facts into separate items over creating a long compound sentence.
+
 ## Judge Behavior Rules
 
 - Be evidence-based and cite paths.
