@@ -92,7 +92,18 @@ git tag v0.1.0
 git push origin v0.1.0
 ```
 
-The release workflow builds, tests, packs, and creates or updates a GitHub Release. Configure the repository secret `NUGET_API_KEY` to also publish tagged releases to NuGet.org.
+The release workflow builds, tests, packs, publishes to NuGet.org with Trusted Publishing, and creates or updates a GitHub Release.
+
+Configure the trusted publisher on nuget.org with these values:
+
+| Field | Value |
+|---|---|
+| Repository Owner | `lucabol` |
+| Repository | `repo-ai-ready` |
+| Workflow File | `release.yml` |
+| Environment | Leave empty |
+
+The workflow uses the GitHub repository variable `NUGET_USER` as the nuget.org profile name, defaulting to `lucabol`.
 
 ## License
 
