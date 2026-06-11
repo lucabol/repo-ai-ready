@@ -21,6 +21,7 @@ public sealed class AppOptionsTests
 		Assert.Equal(ReportFormat.All, options.Format);
 		Assert.Equal(JudgeBackend.Copilot, options.Backend);
 		Assert.Equal(75, options.MinScore);
+		Assert.Equal(4, options.MaxParallelism);
 	}
 
 	[Fact]
@@ -75,6 +76,32 @@ public sealed class AppOptionsTests
 		var options = AppOptions.Parse(["judge.md", "microsoft/vscode", "--env-file", "secrets.env"], new Dictionary<string, string>());
 
 		Assert.Equal("secrets.env", options.EnvFile?.Name);
+	}
+
+	[Fact]
+	public void Parse_AcceptsParallelismOption()
+	{
+		var options = AppOptions.Parse(["judge.md", "microsoft/vscode", "--parallelism", "8"], new Dictionary<string, string>());
+
+		Assert.Equal(8, options.MaxParallelism);
+	}
+
+	[Fact]
+	public void Parse_LoadsParallelismFromEnvironment()
+	{
+		var options = AppOptions.Parse(
+			["judge.md", "microsoft/vscode"],
+			new Dictionary<string, string> { ["REPOAI_PARALLELISM"] = "3" });
+
+		Assert.Equal(3, options.MaxParallelism);
+	}
+
+	[Fact]
+	public void Parse_RejectsInvalidParallelism()
+	{
+		var ex = Assert.Throws<UsageException>(() => AppOptions.Parse(["judge.md", "microsoft/vscode", "--parallelism", "0"], new Dictionary<string, string>()));
+
+		Assert.Contains("1 to 16", ex.Message);
 	}
 
 	[Fact]

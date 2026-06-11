@@ -12,7 +12,8 @@ public static class AppEnvironment
 		"GITHUB_COPILOT_TOKEN",
 		"OPENAI_API_KEY",
 		"OPENAI_ENDPOINT",
-		"REPOAI_MODEL"
+		"REPOAI_MODEL",
+		"REPOAI_PARALLELISM"
 	];
 
 	public static IReadOnlyDictionary<string, string> Load(IReadOnlyList<string> args, DirectoryInfo currentDirectory)

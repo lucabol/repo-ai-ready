@@ -12,17 +12,21 @@ public sealed record AppOptions(
 	string? OpenAiEndpoint,
 	string? Model,
 	int MinScore,
+	int MaxParallelism,
 	FileInfo? EnvFile)
 {
+	private const int DefaultMaxParallelism = 4;
+	private const int MaxAllowedParallelism = 16;
+
 	public const string Usage = """
 		Usage:
-		  repo-ai-ready <judge.md> <org/repo> [org/repo ...] [--output <dir>] [--format console|markdown|json|all] [--backend copilot|openai|deterministic] [--env-file <path>] [--github-token <token>] [--copilot-token <token>] [--openai-key <key>] [--openai-endpoint <uri>] [--model <model>] [--min-score <0-100>]
+		  repo-ai-ready <judge.md> <org/repo> [org/repo ...] [--output <dir>] [--format console|markdown|json|all] [--backend copilot|openai|deterministic] [--parallelism <1-16>] [--env-file <path>] [--github-token <token>] [--copilot-token <token>] [--openai-key <key>] [--openai-endpoint <uri>] [--model <model>] [--min-score <0-100>]
 		  repo-ai-ready --help
 		  repo-ai-ready --version
 
 		Environment:
 		  RepoAIReady loads .env from the current directory by default. Use --env-file <path> to load another file.
-		  Supported keys: GITHUB_TOKEN, GH_TOKEN, COPILOT_TOKEN, GITHUB_COPILOT_TOKEN, OPENAI_API_KEY, OPENAI_ENDPOINT, REPOAI_MODEL.
+		  Supported keys: GITHUB_TOKEN, GH_TOKEN, COPILOT_TOKEN, GITHUB_COPILOT_TOKEN, OPENAI_API_KEY, OPENAI_ENDPOINT, REPOAI_MODEL, REPOAI_PARALLELISM.
 		  GITHUB_TOKEN/GH_TOKEN are only used to collect repository evidence. By default, the Copilot backend uses your logged-in Copilot CLI/SDK account; use COPILOT_TOKEN only when you explicitly want token-based Copilot auth.
 
 		Examples:
@@ -57,6 +61,7 @@ public sealed record AppOptions(
 		var openAiEndpoint = environment.GetValue("OPENAI_ENDPOINT");
 		var model = environment.GetValue("REPOAI_MODEL");
 		var minScore = 0;
+		var maxParallelism = ParseParallelism(environment.GetValue("REPOAI_PARALLELISM") ?? DefaultMaxParallelism.ToString(), "REPOAI_PARALLELISM");
 
 		for (var i = 0; i < args.Count; i++)
 		{
@@ -103,6 +108,10 @@ public sealed record AppOptions(
 						throw new UsageException("--min-score must be an integer from 0 to 100.");
 					}
 					break;
+				case "--parallelism":
+				case "--max-parallel":
+					maxParallelism = ParseParallelism(ReadValue(args, ref i, arg), arg);
+					break;
 				default:
 					if (arg.StartsWith("-", StringComparison.Ordinal))
 					{
@@ -131,7 +140,7 @@ public sealed record AppOptions(
 			throw new UsageException("At least one repository in org/repo form is required.");
 		}
 
-		return new AppOptions(new FileInfo(judgePath), repos, output, format, backend, githubToken, copilotToken, openAiKey, openAiEndpoint, model, minScore, envFile);
+		return new AppOptions(new FileInfo(judgePath), repos, output, format, backend, githubToken, copilotToken, openAiKey, openAiEndpoint, model, minScore, maxParallelism, envFile);
 	}
 
 	private static string ReadValue(IReadOnlyList<string> args, ref int index, string option)
@@ -162,6 +171,16 @@ public sealed record AppOptions(
 			"deterministic" or "offline" or "local" => JudgeBackend.Deterministic,
 			_ => throw new UsageException($"Unknown backend: {value}")
 		};
+
+	private static int ParseParallelism(string value, string source)
+	{
+		if (!int.TryParse(value, out var parallelism) || parallelism is < 1 or > MaxAllowedParallelism)
+		{
+			throw new UsageException($"{source} must be an integer from 1 to {MaxAllowedParallelism}.");
+		}
+
+		return parallelism;
+	}
 }
 
 public sealed class UsageException(string message) : Exception(message);

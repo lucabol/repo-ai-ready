@@ -64,19 +64,11 @@ public static class AppRunner
 
 		try
 		{
-			await AnsiConsole.Status()
-				.Spinner(Spinner.Known.Dots)
-				.StartAsync("Evaluating repositories...", async ctx =>
-				{
-					foreach (var repo in options.Repositories)
-					{
-						ctx.Status($"Collecting evidence for [cyan]{Markup.Escape(repo.FullName)}[/]...");
-						var evidence = await evidenceSource.CollectAsync(repo, cancellationToken);
+			var evaluated = SupportsLiveProgress()
+				? await EvaluateWithLiveProgressAsync(options.Repositories, evidenceSource, judge, options.MaxParallelism, cancellationToken)
+				: await EvaluateWithLineProgressAsync(options.Repositories, evidenceSource, judge, options.MaxParallelism, cancellationToken);
 
-						ctx.Status($"Judging [cyan]{Markup.Escape(repo.FullName)}[/] with Microsoft Agent Framework using [cyan]{Markup.Escape(options.Backend.ToString())}[/]...");
-						results.Add(await judge.EvaluateAsync(evidence, cancellationToken));
-					}
-				});
+			results.AddRange(evaluated);
 		}
 		catch (RateLimitExceededException ex)
 		{
@@ -139,4 +131,148 @@ public static class AppRunner
 		typeof(AppRunner).Assembly.GetCustomAttribute<AssemblyInformationalVersionAttribute>()?.InformationalVersion
 		?? typeof(AppRunner).Assembly.GetName().Version?.ToString()
 		?? "unknown";
+
+	internal static Table RenderProgressTable(IReadOnlyList<RepositoryEvaluationProgress> progress, int maxParallelism)
+	{
+		var table = new Table()
+			.Border(TableBorder.Rounded)
+			.Title($"[bold cyan]Evaluating repositories[/] [dim](parallelism: {maxParallelism})[/]")
+			.AddColumn("Repository")
+			.AddColumn("State");
+
+		foreach (var item in progress)
+		{
+			table.AddRow(Markup.Escape(item.Repository), StageMarkup(item.Stage));
+		}
+
+		return table;
+	}
+
+	private static async Task<IReadOnlyList<AiReadinessReport>> EvaluateWithLiveProgressAsync(
+		IReadOnlyList<RepositorySlug> repositories,
+		IRepositoryEvidenceSource evidenceSource,
+		AgentFrameworkRepoJudge judge,
+		int maxParallelism,
+		CancellationToken cancellationToken)
+	{
+		var progress = repositories
+			.Select(static repo => new RepositoryEvaluationProgress(repo.FullName, RepositoryEvaluationStage.Pending))
+			.ToArray();
+		var progressLock = new object();
+		var results = Array.Empty<AiReadinessReport>();
+
+		await AnsiConsole.Live(RenderProgressTable(progress, maxParallelism))
+			.AutoClear(false)
+			.StartAsync(async ctx =>
+			{
+				results = [.. await EvaluateRepositoriesAsync(
+					repositories,
+					evidenceSource,
+					judge,
+					maxParallelism,
+					(index, stage) =>
+					{
+						lock (progressLock)
+						{
+							progress[index] = progress[index] with { Stage = stage };
+							ctx.UpdateTarget(RenderProgressTable(progress, maxParallelism));
+							ctx.Refresh();
+						}
+					},
+					cancellationToken)];
+			});
+
+		return results;
+	}
+
+	private static Task<IReadOnlyList<AiReadinessReport>> EvaluateWithLineProgressAsync(
+		IReadOnlyList<RepositorySlug> repositories,
+		IRepositoryEvidenceSource evidenceSource,
+		AgentFrameworkRepoJudge judge,
+		int maxParallelism,
+		CancellationToken cancellationToken)
+	{
+		Console.WriteLine($"Evaluating {repositories.Count} repositories with up to {maxParallelism} parallel workers...");
+		return EvaluateRepositoriesAsync(
+			repositories,
+			evidenceSource,
+			judge,
+			maxParallelism,
+			(index, stage) => Console.WriteLine($"{repositories[index].FullName}: {StageText(stage)}"),
+			cancellationToken);
+	}
+
+	internal static async Task<IReadOnlyList<AiReadinessReport>> EvaluateRepositoriesAsync(
+		IReadOnlyList<RepositorySlug> repositories,
+		IRepositoryEvidenceSource evidenceSource,
+		AgentFrameworkRepoJudge judge,
+		int maxParallelism,
+		Action<int, RepositoryEvaluationStage>? updateStatus,
+		CancellationToken cancellationToken)
+	{
+		var results = new AiReadinessReport?[repositories.Count];
+		await Parallel.ForEachAsync(
+			Enumerable.Range(0, repositories.Count),
+			new ParallelOptions
+			{
+				MaxDegreeOfParallelism = maxParallelism,
+				CancellationToken = cancellationToken
+			},
+			async (index, ct) =>
+			{
+				var repo = repositories[index];
+				try
+				{
+					updateStatus?.Invoke(index, RepositoryEvaluationStage.CollectingEvidence);
+					var evidence = await evidenceSource.CollectAsync(repo, ct);
+
+					updateStatus?.Invoke(index, RepositoryEvaluationStage.Judging);
+					results[index] = await judge.EvaluateAsync(evidence, ct);
+
+					updateStatus?.Invoke(index, RepositoryEvaluationStage.Done);
+				}
+				catch
+				{
+					updateStatus?.Invoke(index, RepositoryEvaluationStage.Failed);
+					throw;
+				}
+			});
+
+		return results.Select(report => report ?? throw new InvalidOperationException("Repository evaluation did not produce a report.")).ToList();
+	}
+
+	internal static string StageMarkup(RepositoryEvaluationStage stage) =>
+		stage switch
+		{
+			RepositoryEvaluationStage.Pending => "[grey]Pending[/]",
+			RepositoryEvaluationStage.CollectingEvidence => "[yellow]Processing evidence...[/]",
+			RepositoryEvaluationStage.Judging => "[blue]Judging...[/]",
+			RepositoryEvaluationStage.Done => "[green]Done[/]",
+			RepositoryEvaluationStage.Failed => "[red]Failed[/]",
+			_ => "[grey]Unknown[/]"
+		};
+
+	internal static string StageText(RepositoryEvaluationStage stage) =>
+		stage switch
+		{
+			RepositoryEvaluationStage.Pending => "Pending",
+			RepositoryEvaluationStage.CollectingEvidence => "Processing evidence...",
+			RepositoryEvaluationStage.Judging => "Judging...",
+			RepositoryEvaluationStage.Done => "Done",
+			RepositoryEvaluationStage.Failed => "Failed",
+			_ => "Unknown"
+		};
+
+	internal static bool SupportsLiveProgress() => !Console.IsOutputRedirected;
+}
+
+internal sealed record RepositoryEvaluationProgress(string Repository, RepositoryEvaluationStage Stage);
+
+internal enum RepositoryEvaluationStage
+{
+	Pending,
+	CollectingEvidence,
+	Judging,
+	Done,
+	Failed
 }
