@@ -112,7 +112,7 @@ Configure the trusted publisher on nuget.org with these values:
 | Workflow File | `release.yml` |
 | Environment | Leave empty |
 
-The workflow uses the GitHub repository variable `NUGET_USER` as the nuget.org profile name, defaulting to `lucabol`.
+Trusted Publishing uses OIDC, so the workflow does not require a NuGet API key secret.
 
 ## License
 
