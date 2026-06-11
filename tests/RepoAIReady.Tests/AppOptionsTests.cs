@@ -8,20 +8,49 @@ public sealed class AppOptionsTests
 	public void Parse_AcceptsJudgeFileAndMultipleRepos()
 	{
 		var options = AppOptions.Parse([
-			"--judge", "ai-readiness-llm-judge.md",
+			"--judge-file", "custom-judge.md",
 			"microsoft/vscode",
 			"dotnet/runtime",
 			"--output", "out",
 			"--format", "all",
 			"--min-score", "75"
-		]);
+		], new Dictionary<string, string>());
 
-		Assert.Equal("ai-readiness-llm-judge.md", options.JudgeFile.Name);
+		Assert.Equal("custom-judge.md", options.JudgeFile.Name);
 		Assert.Equal(["microsoft/vscode", "dotnet/runtime"], options.Repositories.Select(r => r.FullName).ToArray());
 		Assert.Equal(ReportFormat.All, options.Format);
 		Assert.Equal(JudgeBackend.Copilot, options.Backend);
 		Assert.Equal(75, options.MinScore);
 		Assert.Equal(4, options.MaxParallelism);
+	}
+
+	[Fact]
+	public void Parse_UsesDefaultJudgeFileWhenJudgeFileOmitted()
+	{
+		var options = AppOptions.Parse(["microsoft/vscode"], new Dictionary<string, string>());
+
+		Assert.Equal(AppOptions.DefaultJudgeFile.FullName, options.JudgeFile.FullName);
+		Assert.Equal(["microsoft/vscode"], options.Repositories.Select(r => r.FullName).ToArray());
+	}
+
+	[Theory]
+	[InlineData("--judge")]
+	[InlineData("-j")]
+	public void Parse_AcceptsLegacyJudgeFileAliases(string option)
+	{
+		var options = AppOptions.Parse([option, "legacy-judge.md", "microsoft/vscode"], new Dictionary<string, string>());
+
+		Assert.Equal("legacy-judge.md", options.JudgeFile.Name);
+		Assert.Equal(["microsoft/vscode"], options.Repositories.Select(r => r.FullName).ToArray());
+	}
+
+	[Fact]
+	public void Parse_AcceptsLegacyPositionalJudgeFile()
+	{
+		var options = AppOptions.Parse(["legacy-judge.md", "microsoft/vscode"], new Dictionary<string, string>());
+
+		Assert.Equal("legacy-judge.md", options.JudgeFile.Name);
+		Assert.Equal(["microsoft/vscode"], options.Repositories.Select(r => r.FullName).ToArray());
 	}
 
 	[Fact]

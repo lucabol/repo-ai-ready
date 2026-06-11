@@ -33,7 +33,7 @@ dotnet tool install --global RepoAIReady
 Then run it with the `repo-ai-ready` command:
 
 ```powershell
-repo-ai-ready ai-readiness-llm-judge.md microsoft/vscode
+repo-ai-ready microsoft/vscode
 ```
 
 Until the package is published, install from a local package build:
@@ -46,15 +46,17 @@ dotnet tool install RepoAIReady --global --add-source artifacts\nupkg
 ## Usage
 
 ```text
-repo-ai-ready <judge.md> <org/repo> [org/repo ...] [--output <dir>] [--format console|markdown|json|all] [--backend copilot|openai|deterministic] [--env-file <path>] [--github-token <token>] [--copilot-token <token>] [--openai-key <key>] [--openai-endpoint <uri>] [--model <model>] [--min-score <0-100>]
+repo-ai-ready <org/repo> [org/repo ...] [--judge-file <path>] [--output <dir>] [--format console|markdown|json|all] [--backend copilot|openai|deterministic] [--env-file <path>] [--github-token <token>] [--copilot-token <token>] [--openai-key <key>] [--openai-endpoint <uri>] [--model <model>] [--min-score <0-100>]
 ```
+
+RepoAIReady uses its bundled `ai-readiness-llm-judge.md` by default. Use `--judge-file <path>` to load a custom rubric.
 
 Examples:
 
 ```powershell
-repo-ai-ready ai-readiness-llm-judge.md microsoft/vscode
-repo-ai-ready --judge ai-readiness-llm-judge.md microsoft/vscode dotnet/runtime --format all --output reports
-repo-ai-ready ai-readiness-llm-judge.md microsoft/vscode --backend deterministic
+repo-ai-ready microsoft/vscode
+repo-ai-ready microsoft/vscode dotnet/runtime --format all --output reports
+repo-ai-ready microsoft/vscode --judge-file custom-judge.md --backend deterministic
 ```
 
 ## Authentication and backends

@@ -15,12 +15,15 @@ public sealed record AppOptions(
 	int MaxParallelism,
 	FileInfo? EnvFile)
 {
+	private const string DefaultJudgeFileName = "ai-readiness-llm-judge.md";
 	private const int DefaultMaxParallelism = 4;
 	private const int MaxAllowedParallelism = 16;
 
+	public static FileInfo DefaultJudgeFile => new(Path.Combine(AppContext.BaseDirectory, DefaultJudgeFileName));
+
 	public const string Usage = """
 		Usage:
-		  repo-ai-ready <judge.md> <org/repo> [org/repo ...] [--output <dir>] [--format console|markdown|json|all] [--backend copilot|openai|deterministic] [--parallelism <1-16>] [--env-file <path>] [--github-token <token>] [--copilot-token <token>] [--openai-key <key>] [--openai-endpoint <uri>] [--model <model>] [--min-score <0-100>]
+		  repo-ai-ready <org/repo> [org/repo ...] [--judge-file <path>] [--output <dir>] [--format console|markdown|json|all] [--backend copilot|openai|deterministic] [--parallelism <1-16>] [--env-file <path>] [--github-token <token>] [--copilot-token <token>] [--openai-key <key>] [--openai-endpoint <uri>] [--model <model>] [--min-score <0-100>]
 		  repo-ai-ready --help
 		  repo-ai-ready --version
 
@@ -29,10 +32,13 @@ public sealed record AppOptions(
 		  Supported keys: GITHUB_TOKEN, GH_TOKEN, COPILOT_TOKEN, GITHUB_COPILOT_TOKEN, OPENAI_API_KEY, OPENAI_ENDPOINT, REPOAI_MODEL, REPOAI_PARALLELISM.
 		  GITHUB_TOKEN/GH_TOKEN are only used to collect repository evidence. By default, the Copilot backend uses your logged-in Copilot CLI/SDK account; use COPILOT_TOKEN only when you explicitly want token-based Copilot auth.
 
+		Judge file:
+		  RepoAIReady uses its bundled ai-readiness-llm-judge.md by default. Use --judge-file <path> to load a custom rubric.
+
 		Examples:
-		  repo-ai-ready ai-readiness-llm-judge.md microsoft/vscode
-		  repo-ai-ready --judge ai-readiness-llm-judge.md microsoft/vscode dotnet/runtime --format all --output reports
-		  repo-ai-ready ai-readiness-llm-judge.md microsoft/vscode --backend deterministic
+		  repo-ai-ready microsoft/vscode
+		  repo-ai-ready microsoft/vscode dotnet/runtime --format all --output reports
+		  repo-ai-ready microsoft/vscode --judge-file custom-judge.md --backend deterministic
 		""";
 
 	public static AppOptions Parse(IReadOnlyList<string> args)
@@ -69,6 +75,7 @@ public sealed record AppOptions(
 			switch (arg)
 			{
 				case "--judge":
+				case "--judge-file":
 				case "-j":
 					judgePath = ReadValue(args, ref i, arg);
 					break;
@@ -118,7 +125,7 @@ public sealed record AppOptions(
 						throw new UsageException($"Unknown option: {arg}");
 					}
 
-					if (judgePath is null)
+					if (IsLegacyPositionalJudgeFile(arg, judgePath, repos.Count))
 					{
 						judgePath = arg;
 					}
@@ -130,18 +137,19 @@ public sealed record AppOptions(
 			}
 		}
 
-		if (judgePath is null)
-		{
-			throw new UsageException("A judge Markdown file is required.");
-		}
-
 		if (repos.Count == 0)
 		{
 			throw new UsageException("At least one repository in org/repo form is required.");
 		}
 
-		return new AppOptions(new FileInfo(judgePath), repos, output, format, backend, githubToken, copilotToken, openAiKey, openAiEndpoint, model, minScore, maxParallelism, envFile);
+		var judgeFile = judgePath is null ? DefaultJudgeFile : new FileInfo(judgePath);
+		return new AppOptions(judgeFile, repos, output, format, backend, githubToken, copilotToken, openAiKey, openAiEndpoint, model, minScore, maxParallelism, envFile);
 	}
+
+	private static bool IsLegacyPositionalJudgeFile(string arg, string? judgePath, int repositoryCount) =>
+		judgePath is null
+		&& repositoryCount == 0
+		&& Path.GetExtension(arg).Equals(".md", StringComparison.OrdinalIgnoreCase);
 
 	private static string ReadValue(IReadOnlyList<string> args, ref int index, string option)
 	{
