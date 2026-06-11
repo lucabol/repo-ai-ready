@@ -38,4 +38,33 @@
     <None Include="..\..\ai-readiness-llm-judge.md" CopyToOutputDirectory="PreserveNewest" CopyToPublishDirectory="PreserveNewest" Link="ai-readiness-llm-judge.md" />
   </ItemGroup>
 
+  <Target Name="_AddWindowsCopilotCliToToolPackage" BeforeTargets="GenerateNuspec" Condition="'$(PackAsTool)' == 'true'">
+    <PropertyGroup>
+      <_RepoAIReadyCopilotWinPlatform>win32-x64</_RepoAIReadyCopilotWinPlatform>
+      <_RepoAIReadyCopilotWinRid>win-x64</_RepoAIReadyCopilotWinRid>
+      <_RepoAIReadyCopilotWinBinary>copilot.exe</_RepoAIReadyCopilotWinBinary>
+      <_RepoAIReadyCopilotWinCacheDir>$(IntermediateOutputPath)copilot-cli\$(CopilotCliVersion)\$(_RepoAIReadyCopilotWinPlatform)</_RepoAIReadyCopilotWinCacheDir>
+      <_RepoAIReadyCopilotWinBinaryPath>$(_RepoAIReadyCopilotWinCacheDir)\$(_RepoAIReadyCopilotWinBinary)</_RepoAIReadyCopilotWinBinaryPath>
+      <_RepoAIReadyCopilotWinArchivePath>$(_RepoAIReadyCopilotWinCacheDir)\copilot.tgz</_RepoAIReadyCopilotWinArchivePath>
+      <_RepoAIReadyCopilotWinDownloadUrl>https://registry.npmjs.org/@github/copilot-$(_RepoAIReadyCopilotWinPlatform)/-/copilot-$(_RepoAIReadyCopilotWinPlatform)-$(CopilotCliVersion).tgz</_RepoAIReadyCopilotWinDownloadUrl>
+      <_RepoAIReadyTarCommand Condition="$([MSBuild]::IsOSPlatform('Windows'))">$(SystemRoot)\System32\tar.exe</_RepoAIReadyTarCommand>
+      <_RepoAIReadyTarCommand Condition="'$(_RepoAIReadyTarCommand)' == ''">tar</_RepoAIReadyTarCommand>
+      <_RepoAIReadyPublishDir Condition="'$(PublishDir)' != ''">$(PublishDir)</_RepoAIReadyPublishDir>
+      <_RepoAIReadyPublishDir Condition="'$(_RepoAIReadyPublishDir)' == ''">$(OutputPath)publish\</_RepoAIReadyPublishDir>
+      <_RepoAIReadyCopilotWinOutputDir>$(OutputPath)runtimes\$(_RepoAIReadyCopilotWinRid)\native</_RepoAIReadyCopilotWinOutputDir>
+      <_RepoAIReadyCopilotWinPublishDir>$(_RepoAIReadyPublishDir)runtimes\$(_RepoAIReadyCopilotWinRid)\native</_RepoAIReadyCopilotWinPublishDir>
+    </PropertyGroup>
+
+    <Error Condition="'$(CopilotCliVersion)' == ''" Text="CopilotCliVersion is not set. The GitHub.Copilot.SDK.props file may be missing from the NuGet package." />
+    <Delete Files="$(_RepoAIReadyCopilotWinArchivePath)" Condition="!Exists('$(_RepoAIReadyCopilotWinBinaryPath)') And Exists('$(_RepoAIReadyCopilotWinArchivePath)')" />
+    <MakeDir Directories="$(_RepoAIReadyCopilotWinCacheDir)" Condition="!Exists('$(_RepoAIReadyCopilotWinBinaryPath)')" />
+    <DownloadFile SourceUrl="$(_RepoAIReadyCopilotWinDownloadUrl)" DestinationFolder="$(_RepoAIReadyCopilotWinCacheDir)" DestinationFileName="copilot.tgz" Condition="!Exists('$(_RepoAIReadyCopilotWinBinaryPath)')" />
+    <Exec Command="&quot;$(_RepoAIReadyTarCommand)&quot; -xzf &quot;$(_RepoAIReadyCopilotWinArchivePath)&quot; --strip-components=1 -C &quot;$(_RepoAIReadyCopilotWinCacheDir)&quot;" Condition="!Exists('$(_RepoAIReadyCopilotWinBinaryPath)')" />
+    <Error Condition="!Exists('$(_RepoAIReadyCopilotWinBinaryPath)')" Text="Failed to extract Windows Copilot CLI binary to $(_RepoAIReadyCopilotWinBinaryPath)." />
+
+    <MakeDir Directories="$(_RepoAIReadyCopilotWinOutputDir);$(_RepoAIReadyCopilotWinPublishDir)" />
+    <Copy SourceFiles="$(_RepoAIReadyCopilotWinBinaryPath)" DestinationFiles="$(_RepoAIReadyCopilotWinOutputDir)\$(_RepoAIReadyCopilotWinBinary)" SkipUnchangedFiles="true" />
+    <Copy SourceFiles="$(_RepoAIReadyCopilotWinBinaryPath)" DestinationFiles="$(_RepoAIReadyCopilotWinPublishDir)\$(_RepoAIReadyCopilotWinBinary)" SkipUnchangedFiles="true" />
+  </Target>
+
 </Project>
