@@ -38,7 +38,7 @@
     <None Include="..\..\ai-readiness-llm-judge.md" CopyToOutputDirectory="PreserveNewest" CopyToPublishDirectory="PreserveNewest" Link="ai-readiness-llm-judge.md" />
   </ItemGroup>
 
-  <Target Name="_AddWindowsCopilotCliToToolPackage" BeforeTargets="GenerateNuspec" Condition="'$(PackAsTool)' == 'true'">
+  <Target Name="_AddWindowsCopilotCliToToolPackage" BeforeTargets="PackTool" DependsOnTargets="PackToPublishDependencyIndirection" Condition="'$(PackAsTool)' == 'true'">
     <PropertyGroup>
       <_RepoAIReadyCopilotWinPlatform>win32-x64</_RepoAIReadyCopilotWinPlatform>
       <_RepoAIReadyCopilotWinRid>win-x64</_RepoAIReadyCopilotWinRid>
