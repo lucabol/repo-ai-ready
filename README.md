@@ -2,6 +2,17 @@
 
 RepoAIReady is a .NET command-line tool that evaluates GitHub repositories for AI coding-agent readiness. It collects repository evidence through the GitHub API, judges it against a Markdown rubric, and writes console, Markdown, and JSON reports.
 
+## Features
+
+- Evaluates one or more GitHub repositories for AI coding-agent readiness using a Markdown judge rubric.
+- Scores repositories across documentation, style and validation, testing, build infrastructure, and AI context.
+- Collects targeted GitHub evidence from README files, docs, workflows, dependency files, tests, source structure, dev containers, and Copilot-specific guidance.
+- Supports GitHub Copilot, OpenAI-compatible, and deterministic offline judging backends.
+- Runs repository evaluations in parallel with configurable worker count and live progress reporting.
+- Produces console dashboards plus Markdown and JSON reports, including per-repository details and aggregate summaries.
+- Highlights top strengths, highest-impact improvements, and uncertainties for each repository.
+- Supports .env configuration, explicit tokens, model overrides, minimum-score exit codes, and private-repository evidence collection.
+
 ## Prerequisites
 
 - .NET SDK installed so you can install and run the tool with `dotnet tool`.
