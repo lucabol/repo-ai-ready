@@ -6,6 +6,32 @@ namespace RepoAIReady.Rules;
 
 public sealed class RuleBasedReadinessEvaluator
 {
+	private static readonly string[] ProjectManifestFileNames =
+	[
+		"package.json",
+		"Cargo.toml",
+		"go.mod",
+		"pyproject.toml",
+		"pom.xml",
+		"build.gradle",
+		"build.gradle.kts",
+		"composer.json",
+		"Gemfile",
+		"mix.exs"
+	];
+
+	private static readonly string[] MonorepoWorkspaceDirectoryNames =
+	[
+		"apps",
+		"packages",
+		"services",
+		"libs",
+		"modules",
+		"components",
+		"plugins",
+		"extensions"
+	];
+
 	public AiReadinessReport Evaluate(string rubric, CollectedRepositoryEvidence evidence)
 	{
 		var documentation = ScoreDocumentation(evidence);
@@ -60,12 +86,13 @@ public sealed class RuleBasedReadinessEvaluator
 		var found = new List<string>();
 		var gaps = new List<string>();
 		var packageScripts = ReadPackageScripts(evidence.Content("package.json"));
+		var hasDotNetValidationCommand = HasDotNetValidationCommand(evidence);
 
 		AddIf(evidence.Exists(".editorconfig"), 4, ".editorconfig defines baseline formatting.", "Add .editorconfig or equivalent formatter configuration.");
-		AddIf(evidence.Exists("tsconfig.json") || evidence.Files.Any(f => f.Path.EndsWith(".csproj", StringComparison.OrdinalIgnoreCase)) || evidence.Exists("pyproject.toml"), 4, "Static typing or language-level validation configuration is present.", "Add language type-check/static-analysis configuration.");
-		AddIf(evidence.Exists("eslint.config.js") || evidence.Exists(".eslintrc.json") || evidence.Exists("biome.json") || packageScripts.Any(s => s.Contains("lint", StringComparison.OrdinalIgnoreCase)), 5, "Linting configuration or scripts are present.", "Add linting rules and a documented lint command.");
-		AddIf(evidence.Exists(".prettierrc") || evidence.Exists("biome.json") || packageScripts.Any(s => s.Contains("format", StringComparison.OrdinalIgnoreCase)), 3, "Formatting tooling is present.", "Add an automated formatting command.");
-		AddIf(HasWorkflowMention(evidence, "lint") || HasWorkflowMention(evidence, "typecheck") || HasWorkflowMention(evidence, "type check"), 4, "CI appears to run lint/type validation.", "Run linting and type checking in CI.");
+		AddIf(evidence.Exists("tsconfig.json") || HasDotNetProjectFile(evidence) || evidence.Exists("pyproject.toml"), 4, "Static typing or language-level validation configuration is present.", "Add language type-check/static-analysis configuration.");
+		AddIf(evidence.Exists("eslint.config.js") || evidence.Exists(".eslintrc.json") || evidence.Exists("biome.json") || packageScripts.Any(s => s.Contains("lint", StringComparison.OrdinalIgnoreCase)) || hasDotNetValidationCommand, 5, "Linting configuration or documented validation commands are present.", "Add linting rules or a documented validation command.");
+		AddIf(evidence.Exists(".prettierrc") || evidence.Exists("biome.json") || packageScripts.Any(s => s.Contains("format", StringComparison.OrdinalIgnoreCase)) || HasCommandMention(evidence, "dotnet format"), 3, "Formatting tooling or commands are present.", "Add an automated formatting command.");
+		AddIf(HasWorkflowMention(evidence, "lint") || HasWorkflowMention(evidence, "typecheck") || HasWorkflowMention(evidence, "type check") || HasWorkflowMention(evidence, "dotnet build") || HasWorkflowMention(evidence, "dotnet test"), 4, "CI appears to run lint, type, or .NET validation.", "Run linting, type checking, or .NET validation in CI.");
 
 		return Build(score, found, gaps);
 
@@ -90,9 +117,9 @@ public sealed class RuleBasedReadinessEvaluator
 		var gaps = new List<string>();
 		var packageScripts = ReadPackageScripts(evidence.Content("package.json"));
 
-		AddIf(evidence.DirectoryExists("test") || evidence.DirectoryExists("tests") || evidence.DirectoryExists("__tests__") || evidence.Files.Any(f => f.Path.Contains("/test/", StringComparison.OrdinalIgnoreCase)), 6, "Test directories or test files are present.", "Add test suites under test/, tests/, __tests__, or area-specific test folders.");
-		AddIf(packageScripts.Any(s => s.Contains("test", StringComparison.OrdinalIgnoreCase)), 6, "package.json includes test scripts.", "Expose a local test command.");
-		AddIf(HasWorkflowMention(evidence, "test"), 5, "CI appears to run tests.", "Run tests in pull request CI.");
+		AddIf(evidence.DirectoryExists("test") || evidence.DirectoryExists("tests") || evidence.DirectoryExists("__tests__") || evidence.Files.Any(f => f.Path.Contains("/test/", StringComparison.OrdinalIgnoreCase)) || HasDotNetTestProject(evidence), 6, "Test directories, test files, or .NET test projects are present.", "Add test suites under test/, tests/, __tests__, or area-specific test folders.");
+		AddIf(packageScripts.Any(s => s.Contains("test", StringComparison.OrdinalIgnoreCase)) || HasLocalTestCommand(evidence), 6, "A local test command is documented.", "Expose a local test command.");
+		AddIf(HasWorkflowMention(evidence, "test") || HasWorkflowMention(evidence, "dotnet test"), 5, "CI appears to run tests.", "Run tests in pull request CI.");
 		AddIf(evidence.Files.Any(f => f.Path.Contains("integration", StringComparison.OrdinalIgnoreCase) || f.Path.Contains("e2e", StringComparison.OrdinalIgnoreCase)), 3, "Integration or end-to-end test signals were found.", "Add integration/end-to-end tests where behavior crosses boundaries.");
 
 		return Build(score, found, gaps);
@@ -118,8 +145,8 @@ public sealed class RuleBasedReadinessEvaluator
 		var gaps = new List<string>();
 		var packageScripts = ReadPackageScripts(evidence.Content("package.json"));
 
-		AddIf(packageScripts.Any(s => s.Contains("build", StringComparison.OrdinalIgnoreCase)) || evidence.Files.Any(f => f.Path.EndsWith(".sln", StringComparison.OrdinalIgnoreCase) || f.Path.EndsWith(".csproj", StringComparison.OrdinalIgnoreCase)) || evidence.Exists("go.mod") || evidence.Exists("Cargo.toml"), 5, "Build scripts or project files are present.", "Add a documented build command or project file.");
-		AddIf(evidence.Exists("package-lock.json") || evidence.Exists("pnpm-lock.yaml") || evidence.Exists("yarn.lock") || evidence.Exists("go.sum") || evidence.Exists("Cargo.lock"), 5, "Dependency lockfiles are present.", "Commit dependency lockfiles for reproducible installs.");
+		AddIf(packageScripts.Any(s => s.Contains("build", StringComparison.OrdinalIgnoreCase)) || HasDotNetProjectFile(evidence) || HasCommandMention(evidence, "dotnet build") || evidence.Exists("go.mod") || evidence.Exists("Cargo.toml"), 5, "Build scripts, documented commands, or project files are present.", "Add a documented build command or project file.");
+		AddIf(evidence.Exists("package-lock.json") || evidence.Exists("pnpm-lock.yaml") || evidence.Exists("yarn.lock") || evidence.Exists("go.sum") || evidence.Exists("Cargo.lock") || evidence.Files.Any(f => f.Path.EndsWith("packages.lock.json", StringComparison.OrdinalIgnoreCase)), 5, "Dependency lockfiles are present.", "Commit dependency lockfiles for reproducible installs.");
 		AddIf(evidence.DirectoryExists(".github/workflows"), 5, "GitHub Actions workflows are present.", "Add pull request CI workflows that build, validate, and test changes.");
 		AddIf(evidence.DirectoryExists(".devcontainer") || evidence.Exists("Dockerfile") || evidence.Exists("global.json"), 3, "Environment pinning/setup files are present.", "Add devcontainer, Dockerfile, global.json, or equivalent tool version pinning.");
 		AddIf(evidence.Exists(".github/dependabot.yml"), 2, "Dependabot configuration is present.", "Add Dependabot or equivalent dependency maintenance automation.");
@@ -238,6 +265,56 @@ public sealed class RuleBasedReadinessEvaluator
 			normalized.Contains("cargo", StringComparison.Ordinal) ||
 			normalized.Contains("pytest", StringComparison.Ordinal);
 	}
+
+	private static bool HasDotNetProjectFile(CollectedRepositoryEvidence evidence) =>
+		evidence.Files.Any(f =>
+			f.Path.EndsWith(".sln", StringComparison.OrdinalIgnoreCase) ||
+			f.Path.EndsWith(".slnx", StringComparison.OrdinalIgnoreCase) ||
+			f.Path.EndsWith(".csproj", StringComparison.OrdinalIgnoreCase) ||
+			f.Path.EndsWith(".fsproj", StringComparison.OrdinalIgnoreCase) ||
+			f.Path.EndsWith(".vbproj", StringComparison.OrdinalIgnoreCase));
+
+	private static bool HasDotNetValidationCommand(CollectedRepositoryEvidence evidence) =>
+		HasCommandMention(evidence, "dotnet build") ||
+		HasCommandMention(evidence, "dotnet test") ||
+		HasCommandMention(evidence, "dotnet format") ||
+		HasCommandMention(evidence, "dotnet restore");
+
+	private static bool HasLocalTestCommand(CollectedRepositoryEvidence evidence) =>
+		HasCommandMention(evidence, "dotnet test") ||
+		HasCommandMention(evidence, "pytest") ||
+		HasCommandMention(evidence, "cargo test") ||
+		HasCommandMention(evidence, "go test");
+
+	private static bool HasCommandMention(CollectedRepositoryEvidence evidence, string command) =>
+		evidence.Files.Any(f =>
+			IsCommandBearingFile(f) &&
+			f.Content?.Contains(command, StringComparison.OrdinalIgnoreCase) == true);
+
+	private static bool IsCommandBearingFile(EvidenceFile file) =>
+		file.Path.Equals("README.md", StringComparison.OrdinalIgnoreCase) ||
+		file.Path.Equals("CONTRIBUTING.md", StringComparison.OrdinalIgnoreCase) ||
+		file.Path.Equals(".github/copilot-instructions.md", StringComparison.OrdinalIgnoreCase) ||
+		file.Path.StartsWith(".github/instructions/", StringComparison.OrdinalIgnoreCase) ||
+		file.Path.StartsWith(".github/workflows/", StringComparison.OrdinalIgnoreCase) ||
+		file.Path.StartsWith("docs/", StringComparison.OrdinalIgnoreCase) ||
+		file.Path.StartsWith("architecture/", StringComparison.OrdinalIgnoreCase);
+
+	private static bool HasDotNetTestProject(CollectedRepositoryEvidence evidence) =>
+		evidence.Files.Any(f =>
+			IsDotNetProjectPath(f.Path) &&
+			(f.Path.Contains(".Test", StringComparison.OrdinalIgnoreCase) ||
+			 f.Path.Contains("Tests", StringComparison.OrdinalIgnoreCase) ||
+			 f.Content?.Contains("<IsTestProject>true</IsTestProject>", StringComparison.OrdinalIgnoreCase) == true ||
+			 f.Content?.Contains("Microsoft.NET.Test.Sdk", StringComparison.OrdinalIgnoreCase) == true ||
+			 f.Content?.Contains("xunit", StringComparison.OrdinalIgnoreCase) == true ||
+			 f.Content?.Contains("nunit", StringComparison.OrdinalIgnoreCase) == true ||
+			 f.Content?.Contains("MSTest", StringComparison.OrdinalIgnoreCase) == true));
+
+	private static bool IsDotNetProjectPath(string path) =>
+		path.EndsWith(".csproj", StringComparison.OrdinalIgnoreCase) ||
+		path.EndsWith(".fsproj", StringComparison.OrdinalIgnoreCase) ||
+		path.EndsWith(".vbproj", StringComparison.OrdinalIgnoreCase);
 
 	private static bool HasPromptOrAgentCustomization(CollectedRepositoryEvidence evidence) =>
 		evidence.Files.Any(f => f.IsFile && f.Path.StartsWith(".github/prompts/", StringComparison.OrdinalIgnoreCase) && f.Path.EndsWith(".prompt.md", StringComparison.OrdinalIgnoreCase)) ||
@@ -690,20 +767,114 @@ public sealed class RuleBasedReadinessEvaluator
 
 	private static string ClassifyRepository(CollectedRepositoryEvidence evidence)
 	{
-		var topLevelDirectories = evidence.Files.Count(f => f.IsDirectory && !f.Path.Contains('/'));
-		var packageLikeFiles = evidence.Files.Count(f =>
-			f.Path.EndsWith(".csproj", StringComparison.OrdinalIgnoreCase) ||
-			f.Path.EndsWith("package.json", StringComparison.OrdinalIgnoreCase) ||
-			f.Path.EndsWith("Cargo.toml", StringComparison.OrdinalIgnoreCase) ||
-			f.Path.EndsWith("go.mod", StringComparison.OrdinalIgnoreCase));
+		var projectRoots = evidence.Files
+			.Where(IsProjectManifest)
+			.Select(f => GetDirectoryName(NormalizePath(f.Path)))
+			.Where(path => path.Length > 0)
+			.Distinct(StringComparer.OrdinalIgnoreCase)
+			.ToList();
 
-		if (packageLikeFiles > 3)
+		var productProjectRoots = projectRoots
+			.Where(IsProductProjectPath)
+			.ToList();
+		var productTopLevelAreas = productProjectRoots
+			.Select(GetTopLevelSegment)
+			.Distinct(StringComparer.OrdinalIgnoreCase)
+			.Count();
+
+		if (productProjectRoots.Count(IsInMonorepoWorkspaceDirectory) >= 2 ||
+			(productProjectRoots.Count >= 3 && productTopLevelAreas >= 2))
 		{
 			return "monorepo";
 		}
 
-		return topLevelDirectories >= 20 ? "large_repo" : "single_repo";
+		var topLevelDirectories = evidence.Files
+			.Count(f => f.IsDirectory && !NormalizePath(f.Path).Contains('/'));
+
+		return topLevelDirectories >= 20 || HasLargeRepositoryEvidence(evidence) ? "large_repo" : "single_repo";
 	}
+
+	private static bool IsProjectManifest(EvidenceFile file)
+	{
+		if (!file.IsFile)
+		{
+			return false;
+		}
+
+		var fileName = GetFileName(NormalizePath(file.Path));
+		return ProjectManifestFileNames.Contains(fileName, StringComparer.OrdinalIgnoreCase) ||
+			fileName.EndsWith(".csproj", StringComparison.OrdinalIgnoreCase) ||
+			fileName.EndsWith(".fsproj", StringComparison.OrdinalIgnoreCase) ||
+			fileName.EndsWith(".vbproj", StringComparison.OrdinalIgnoreCase);
+	}
+
+	private static bool IsProductProjectPath(string path)
+	{
+		var segments = NormalizePath(path).Split('/', StringSplitOptions.RemoveEmptyEntries);
+		return segments.Length > 0 &&
+			!segments.Any(IsIgnoredProjectSegment) &&
+			!IsTestProjectPath(segments);
+	}
+
+	private static bool IsIgnoredProjectSegment(string segment) =>
+		segment.StartsWith(".", StringComparison.Ordinal) ||
+		segment.Equals("node_modules", StringComparison.OrdinalIgnoreCase) ||
+		segment.Equals("vendor", StringComparison.OrdinalIgnoreCase) ||
+		segment.Equals("bin", StringComparison.OrdinalIgnoreCase) ||
+		segment.Equals("obj", StringComparison.OrdinalIgnoreCase) ||
+		segment.Equals("dist", StringComparison.OrdinalIgnoreCase) ||
+		segment.Equals("build", StringComparison.OrdinalIgnoreCase) ||
+		segment.Equals("coverage", StringComparison.OrdinalIgnoreCase) ||
+		segment.Equals("docs", StringComparison.OrdinalIgnoreCase) ||
+		segment.Equals("doc", StringComparison.OrdinalIgnoreCase) ||
+		segment.Equals("examples", StringComparison.OrdinalIgnoreCase) ||
+		segment.Equals("samples", StringComparison.OrdinalIgnoreCase) ||
+		segment.Equals("fixtures", StringComparison.OrdinalIgnoreCase);
+
+	private static bool IsTestProjectPath(string path) =>
+		IsTestProjectPath(NormalizePath(path).Split('/', StringSplitOptions.RemoveEmptyEntries));
+
+	private static bool IsTestProjectPath(IEnumerable<string> segments) =>
+		segments.Any(segment =>
+			segment.Equals("test", StringComparison.OrdinalIgnoreCase) ||
+			segment.Equals("tests", StringComparison.OrdinalIgnoreCase) ||
+			segment.Equals("__tests__", StringComparison.OrdinalIgnoreCase) ||
+			segment.EndsWith(".tests", StringComparison.OrdinalIgnoreCase) ||
+			segment.EndsWith(".test", StringComparison.OrdinalIgnoreCase));
+
+	private static bool IsInMonorepoWorkspaceDirectory(string path)
+	{
+		var firstSegment = NormalizePath(path).Split('/', StringSplitOptions.RemoveEmptyEntries).FirstOrDefault();
+		return firstSegment is not null &&
+			MonorepoWorkspaceDirectoryNames.Contains(firstSegment, StringComparer.OrdinalIgnoreCase);
+	}
+
+	private static bool HasLargeRepositoryEvidence(CollectedRepositoryEvidence evidence)
+	{
+		var normalizedPaths = evidence.Files.Select(f => NormalizePath(f.Path)).ToList();
+		var distinctDirectories = normalizedPaths
+			.Select(GetDirectoryName)
+			.Where(path => path.Length > 0)
+			.Distinct(StringComparer.OrdinalIgnoreCase)
+			.Count();
+		var distinctTopLevelAreas = normalizedPaths
+			.Select(GetTopLevelSegment)
+			.Where(segment => segment.Length > 0 && segment[0] != '.')
+			.Distinct(StringComparer.OrdinalIgnoreCase)
+			.Count();
+
+		return evidence.Files.Count >= 120 ||
+			distinctDirectories >= 60 ||
+			(evidence.Files.Count >= 60 && distinctTopLevelAreas >= 15);
+	}
+
+	private static string GetTopLevelSegment(string path)
+	{
+		var separator = path.IndexOf('/');
+		return separator < 0 ? path : path[..separator];
+	}
+
+	private static string NormalizePath(string path) => path.Replace('\\', '/');
 
 	private static IReadOnlyList<string> TopStrengths(FundamentalsBlock fundamentals)
 	{
@@ -761,6 +932,9 @@ public sealed class RuleBasedReadinessEvaluator
 	private static IReadOnlyList<string> Uncertainties(CollectedRepositoryEvidence evidence)
 	{
 		var uncertainties = new List<string>();
+		var missingChecklistPaths = evidence.MissingPaths
+			.Where(path => !IsEvidenceCollectionLimitMarker(path))
+			.ToList();
 		if (string.IsNullOrWhiteSpace(evidence.Metadata.PrimaryLanguage))
 		{
 			uncertainties.Add("Primary language was not reported by GitHub metadata.");
@@ -771,18 +945,36 @@ public sealed class RuleBasedReadinessEvaluator
 			uncertainties.Add("Some large files were truncated before judging.");
 		}
 
-		if (!evidence.Files.Any(IsMcpConfigFile) && evidence.MissingPaths.Any(IsMcpConfigPath))
+		if (evidence.MissingPaths.Contains(GitHubRepositoryEvidenceSource.TreeTruncatedMissingPath, StringComparer.Ordinal))
+		{
+			uncertainties.Add("Git tree evidence was truncated by GitHub; deeply nested manifests, tests, or docs may be incomplete.");
+		}
+
+		if (evidence.MissingPaths.Contains(GitHubRepositoryEvidenceSource.TreeInspectionLimitedMissingPath, StringComparer.Ordinal))
+		{
+			uncertainties.Add("Repository tree inspection hit a bounded limit; only the most relevant paths were judged.");
+		}
+
+		if (evidence.MissingPaths.Contains(GitHubRepositoryEvidenceSource.TreeContentFetchLimitedMissingPath, StringComparer.Ordinal))
+		{
+			uncertainties.Add("Content fetching for discovered files hit a bounded limit; some nested docs, manifests, or workflows were judged by path only.");
+		}
+
+		if (!evidence.Files.Any(IsMcpConfigFile) && missingChecklistPaths.Any(IsMcpConfigPath))
 		{
 			uncertainties.Add("Repository-level GitHub.com MCP settings are not exposed as repository files and were not assessed.");
 		}
 
-		if (evidence.MissingPaths.Count > 0)
+		if (missingChecklistPaths.Count > 0)
 		{
 			uncertainties.Add("Some checklist paths were absent or inaccessible; missing paths were judged according to rubric expectations.");
 		}
 
 		return uncertainties;
 	}
+
+	private static bool IsEvidenceCollectionLimitMarker(string path) =>
+		path.StartsWith("__repo_ai_ready:", StringComparison.Ordinal);
 
 	private static IEnumerable<(string Name, FundamentalScore Score)> FundamentalPairs(FundamentalsBlock fundamentals)
 	{

@@ -49,10 +49,14 @@ public static class MarkdownReportRenderer
 
 		for (var i = 0; i < items.Count; i++)
 		{
-			lines.Add($"{i + 1}. {items[i]}");
+			lines.Add($"{i + 1}. {Escape(items[i])}");
 		}
 	}
 
-	private static string Escape(string value) =>
-		value.Replace("|", "\\|", StringComparison.Ordinal).Replace(Environment.NewLine, "<br>", StringComparison.Ordinal);
+	internal static string Escape(string value) =>
+		value
+			.Replace("\r\n", "<br>", StringComparison.Ordinal)
+			.Replace("\n", "<br>", StringComparison.Ordinal)
+			.Replace("\r", "<br>", StringComparison.Ordinal)
+			.Replace("|", "\\|", StringComparison.Ordinal);
 }

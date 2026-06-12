@@ -30,7 +30,8 @@ public sealed record AppOptions(
 		Environment:
 		  RepoAIReady loads .env from the current directory by default. Use --env-file <path> to load another file.
 		  Supported keys: GITHUB_TOKEN, GH_TOKEN, COPILOT_TOKEN, GITHUB_COPILOT_TOKEN, OPENAI_API_KEY, OPENAI_ENDPOINT, REPOAI_MODEL, REPOAI_PARALLELISM.
-		  GITHUB_TOKEN/GH_TOKEN are only used to collect repository evidence. By default, the Copilot backend uses your logged-in Copilot CLI/SDK account; use COPILOT_TOKEN only when you explicitly want token-based Copilot auth.
+		  GITHUB_TOKEN/GH_TOKEN are only used to collect repository evidence. By default, the Copilot backend uses your logged-in Copilot CLI/SDK account on Windows x64; use COPILOT_TOKEN only when you explicitly want token-based Copilot auth.
+		  Packaged Copilot startup is currently Windows x64 only. Use --backend deterministic or --backend openai on other platforms.
 
 		Judge file:
 		  RepoAIReady uses its bundled ai-readiness-llm-judge.md by default. Use --judge-file <path> to load a custom rubric.

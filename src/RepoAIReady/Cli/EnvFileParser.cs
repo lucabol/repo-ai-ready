@@ -42,9 +42,9 @@ public static class EnvFileParser
 	private static string ParseValue(string value)
 	{
 		value = value.TrimStart();
-		if (value.Length >= 2 && value[0] == '"' && value[^1] == '"')
+		if (TryReadQuotedValue(value, '"', out var doubleQuoted))
 		{
-			return value[1..^1]
+			return doubleQuoted
 				.Replace("\\n", "\n", StringComparison.Ordinal)
 				.Replace("\\r", "\r", StringComparison.Ordinal)
 				.Replace("\\t", "\t", StringComparison.Ordinal)
@@ -52,12 +52,60 @@ public static class EnvFileParser
 				.Replace("\\\\", "\\", StringComparison.Ordinal);
 		}
 
-		if (value.Length >= 2 && value[0] == '\'' && value[^1] == '\'')
+		if (TryReadQuotedValue(value, '\'', out var singleQuoted))
 		{
-			return value[1..^1];
+			return singleQuoted;
 		}
 
 		return StripInlineComment(value).Trim();
+	}
+
+	private static bool TryReadQuotedValue(string value, char quote, out string parsed)
+	{
+		parsed = string.Empty;
+		if (value.Length < 2 || value[0] != quote)
+		{
+			return false;
+		}
+
+		var closingQuoteIndex = FindClosingQuote(value, quote);
+		if (closingQuoteIndex <= 0)
+		{
+			return false;
+		}
+
+		var trailing = value[(closingQuoteIndex + 1)..].TrimStart();
+		if (trailing.Length > 0 && trailing[0] != '#')
+		{
+			return false;
+		}
+
+		parsed = value[1..closingQuoteIndex];
+		return true;
+	}
+
+	private static int FindClosingQuote(string value, char quote)
+	{
+		for (var i = 1; i < value.Length; i++)
+		{
+			if (value[i] == quote && (quote != '"' || !IsEscaped(value, i)))
+			{
+				return i;
+			}
+		}
+
+		return -1;
+	}
+
+	private static bool IsEscaped(string value, int index)
+	{
+		var backslashCount = 0;
+		for (var i = index - 1; i >= 0 && value[i] == '\\'; i--)
+		{
+			backslashCount++;
+		}
+
+		return backslashCount % 2 == 1;
 	}
 
 	private static string StripInlineComment(string value)

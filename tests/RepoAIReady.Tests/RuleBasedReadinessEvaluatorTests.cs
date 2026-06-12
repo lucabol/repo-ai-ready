@@ -101,6 +101,71 @@ public sealed class RuleBasedReadinessEvaluatorTests
 	}
 
 	[Fact]
+	public void Evaluate_CreditsDotNetManifestsAndDocumentedValidationCommands()
+	{
+		var report = new RuleBasedReadinessEvaluator().Evaluate(
+			"rubric",
+			Evidence(
+				File("README.md", """
+					# RepoAIReady
+
+					Validate locally with:
+
+					```powershell
+					dotnet restore RepoAIReady.sln
+					dotnet build RepoAIReady.sln --configuration Release --no-restore
+					dotnet test RepoAIReady.sln --configuration Release --no-build
+					```
+					"""),
+				File("CONTRIBUTING.md", "Run dotnet build and dotnet test before opening a PR."),
+				Dir("src"),
+				Dir("tests"),
+				Dir(".github"),
+				Dir(".github/workflows"),
+				File(".editorconfig", "root = true"),
+				File("RepoAIReady.sln", "Project(\"{GUID}\") = \"RepoAIReady\""),
+				File("src/RepoAIReady/RepoAIReady.csproj", "<Project Sdk=\"Microsoft.NET.Sdk\"></Project>"),
+				File("tests/RepoAIReady.Tests/RepoAIReady.Tests.csproj", """
+					<Project Sdk="Microsoft.NET.Sdk">
+					  <PropertyGroup>
+					    <IsTestProject>true</IsTestProject>
+					  </PropertyGroup>
+					  <ItemGroup>
+					    <PackageReference Include="Microsoft.NET.Test.Sdk" Version="17.12.0" />
+					  </ItemGroup>
+					</Project>
+					"""),
+				File(".github/workflows/ci.yml", "dotnet restore RepoAIReady.sln\ndotnet build RepoAIReady.sln\ndotnet test RepoAIReady.sln"),
+				File(".github/copilot-instructions.md", "Run dotnet build and dotnet test before finishing changes.")));
+
+		Assert.Contains(report.Fundamentals.StyleAndValidation.Evidence, e => e.Contains("documented validation commands", StringComparison.OrdinalIgnoreCase));
+		Assert.Contains(report.Fundamentals.Testing.Evidence, e => e.Contains("local test command", StringComparison.OrdinalIgnoreCase));
+		Assert.Contains(report.Fundamentals.Testing.Evidence, e => e.Contains(".NET test projects", StringComparison.OrdinalIgnoreCase));
+		Assert.Contains(report.Fundamentals.BuildInfrastructure.Evidence, e => e.Contains("project files", StringComparison.OrdinalIgnoreCase));
+		Assert.DoesNotContain(report.Fundamentals.Testing.Gaps, g => g.Contains("Expose a local test command", StringComparison.OrdinalIgnoreCase));
+		Assert.DoesNotContain(report.Fundamentals.StyleAndValidation.Gaps, g => g.Contains("Run linting", StringComparison.OrdinalIgnoreCase));
+	}
+
+	[Fact]
+	public void Evaluate_ReportsUncertaintyForBoundedTreeCollection()
+	{
+		var report = new RuleBasedReadinessEvaluator().Evaluate(
+			"rubric",
+			Evidence(
+				[
+					File("README.md", "# Project")
+				],
+				[
+					GitHubRepositoryEvidenceSource.TreeTruncatedMissingPath,
+					GitHubRepositoryEvidenceSource.TreeContentFetchLimitedMissingPath
+				]));
+
+		Assert.Contains(report.Uncertainties, u => u.Contains("Git tree evidence was truncated", StringComparison.OrdinalIgnoreCase));
+		Assert.Contains(report.Uncertainties, u => u.Contains("Content fetching", StringComparison.OrdinalIgnoreCase));
+		Assert.DoesNotContain(report.Uncertainties, u => u.Contains("checklist paths were absent", StringComparison.OrdinalIgnoreCase));
+	}
+
+	[Fact]
 	public void Evaluate_FlagsInvalidSkillsAndUnsafeMcpConfiguration()
 	{
 		var report = new RuleBasedReadinessEvaluator().Evaluate(
@@ -142,7 +207,74 @@ public sealed class RuleBasedReadinessEvaluatorTests
 		Assert.Contains(report.Fundamentals.AiContext.Gaps, g => g.Contains("does not define a command", StringComparison.OrdinalIgnoreCase));
 	}
 
+	[Fact]
+	public void Evaluate_ClassifiesSingleRepoWithoutTreatingRootOrTestManifestsAsMonorepo()
+	{
+		var report = new RuleBasedReadinessEvaluator().Evaluate(
+			"rubric",
+			Evidence(
+				File("README.md", "# Project"),
+				Dir("src"),
+				Dir("src/App"),
+				File("src/App/App.csproj", "<Project />"),
+				Dir("src/Library"),
+				File("src/Library/Library.csproj", "<Project />"),
+				Dir("src/Tooling"),
+				File("src/Tooling/Tooling.csproj", "<Project />"),
+				Dir("tests"),
+				Dir("tests/App.Tests"),
+				File("tests/App.Tests/App.Tests.csproj", "<Project />"),
+				Dir("node_modules"),
+				Dir("node_modules/transitive"),
+				File("node_modules/transitive/package.json", "{}"),
+				File("package.json", "{}"),
+				File("go.mod", "module example.test/repo"),
+				File("Cargo.toml", "[package]\nname = \"repo\""),
+				Dir(".github"),
+				File(".github/copilot-instructions.md", "Run dotnet build and dotnet test.")));
+
+		Assert.Equal("single_repo", report.RepositoryType);
+	}
+
+	[Fact]
+	public void Evaluate_ClassifiesMonorepoFromNestedProjectManifests()
+	{
+		var report = new RuleBasedReadinessEvaluator().Evaluate(
+			"rubric",
+			Evidence(
+				File("README.md", "# Project"),
+				Dir("apps"),
+				Dir("apps/web"),
+				File("apps/web/package.json", "{}"),
+				Dir("packages"),
+				Dir("packages/shared"),
+				File("packages/shared/package.json", "{}"),
+				Dir("services"),
+				Dir("services/api"),
+				File("services/api/Api.csproj", "<Project />"),
+				Dir(".github"),
+				File(".github/copilot-instructions.md", "Run each package build and test command.")));
+
+		Assert.Equal("monorepo", report.RepositoryType);
+	}
+
+	[Fact]
+	public void Evaluate_ClassifiesLargeRepoFromBroadDirectoryEvidence()
+	{
+		var files = Enumerable.Range(1, 20)
+			.Select(i => Dir($"area-{i:00}"))
+			.Prepend(File("README.md", "# Project"))
+			.ToArray();
+
+		var report = new RuleBasedReadinessEvaluator().Evaluate("rubric", Evidence(files));
+
+		Assert.Equal("large_repo", report.RepositoryType);
+	}
+
 	private static CollectedRepositoryEvidence Evidence(params EvidenceFile[] files) =>
+		Evidence(files, []);
+
+	private static CollectedRepositoryEvidence Evidence(IReadOnlyList<EvidenceFile> files, IReadOnlyList<string> missingPaths) =>
 		new(
 			new RepositorySlug("owner", "repo"),
 			new RepositoryMetadata(
@@ -154,7 +286,7 @@ public sealed class RuleBasedReadinessEvaluatorTests
 				IsPrivate: false,
 				DateTimeOffset.UtcNow),
 			files,
-			[]);
+			missingPaths);
 
 	private static EvidenceFile File(string path, string content) => new(path, "file", content, $"https://example.test/{path}", "sha", Truncated: false);
 

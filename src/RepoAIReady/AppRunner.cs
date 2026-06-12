@@ -58,17 +58,20 @@ public static class AppRunner
 			Console.Error.WriteLine(AppOptions.Usage);
 			return 2;
 		}
+		catch (CopilotBackendException ex)
+		{
+			WriteCopilotBackendError(ex);
+			return 6;
+		}
 
 		var judge = new AgentFrameworkRepoJudge(rubric, chatClient);
-		var results = new List<AiReadinessReport>();
+		RepositoryEvaluationBatch batch;
 
 		try
 		{
-			var evaluated = SupportsLiveProgress()
+			batch = SupportsLiveProgress()
 				? await EvaluateWithLiveProgressAsync(options.Repositories, evidenceSource, judge, options.MaxParallelism, cancellationToken)
 				: await EvaluateWithLineProgressAsync(options.Repositories, evidenceSource, judge, options.MaxParallelism, cancellationToken);
-
-			results.AddRange(evaluated);
 		}
 		catch (RateLimitExceededException ex)
 		{
@@ -87,12 +90,7 @@ public static class AppRunner
 		}
 		catch (CopilotBackendException ex)
 		{
-			Console.Error.WriteLine(ex.Message);
-			if (ex.InnerException is not null)
-			{
-				Console.Error.WriteLine($"Underlying Copilot error: {ex.InnerException.Message}");
-			}
-
+			WriteCopilotBackendError(ex);
 			return 6;
 		}
 		finally
@@ -100,26 +98,42 @@ public static class AppRunner
 			chatClient.Dispose();
 		}
 
+		WriteFailureDiagnostics(batch.Failures);
+
 		var writer = new ReportWriter();
-		var run = await writer.WriteAsync(options.OutputDirectory, results, options.Format, cancellationToken);
+		var run = await writer.WriteAsync(options.OutputDirectory, batch.Reports, batch.Failures, options.Format, cancellationToken);
 
 		if (options.Format is ReportFormat.Console or ReportFormat.All)
 		{
-			new ConsoleReportRenderer().Render(results, run);
+			new ConsoleReportRenderer().Render(batch.Reports, run);
 		}
 
-		var lowestScore = results.Count == 0 ? 0 : results.Min(r => r.OverallScore);
-		return lowestScore >= options.MinScore ? 0 : 1;
+		return DetermineExitCode(batch, options.MinScore);
 	}
 
 	private static IChatClient CreateChatClient(AppOptions options) =>
 		options.Backend switch
 		{
-			JudgeBackend.Copilot => new GitHubCopilotChatClient(options.CopilotToken, options.Model, Directory.GetCurrentDirectory()),
+			JudgeBackend.Copilot => CreateCopilotChatClient(options),
 			JudgeBackend.OpenAi => OpenAiChatClientFactory.Create(options),
 			JudgeBackend.Deterministic => new RuleBasedReadinessChatClient(new RuleBasedReadinessEvaluator()),
 			_ => throw new UsageException($"Unsupported backend: {options.Backend}")
 		};
+
+	private static void WriteCopilotBackendError(CopilotBackendException ex)
+	{
+		Console.Error.WriteLine(ex.Message);
+		if (ex.InnerException is not null)
+		{
+			Console.Error.WriteLine($"Underlying Copilot error: {ex.InnerException.Message}");
+		}
+	}
+
+	private static IChatClient CreateCopilotChatClient(AppOptions options)
+	{
+		GitHubCopilotChatClient.EnsureBundledCopilotCliPlatformSupported();
+		return new GitHubCopilotChatClient(options.CopilotToken, options.Model, Directory.GetCurrentDirectory());
+	}
 
 	private static bool IsHelpCommand(IReadOnlyList<string> args) =>
 		args.Count == 1 && args[0] is "--help" or "-h" or "-?";
@@ -148,7 +162,7 @@ public static class AppRunner
 		return table;
 	}
 
-	private static async Task<IReadOnlyList<AiReadinessReport>> EvaluateWithLiveProgressAsync(
+	private static async Task<RepositoryEvaluationBatch> EvaluateWithLiveProgressAsync(
 		IReadOnlyList<RepositorySlug> repositories,
 		IRepositoryEvidenceSource evidenceSource,
 		AgentFrameworkRepoJudge judge,
@@ -159,13 +173,13 @@ public static class AppRunner
 			.Select(static repo => new RepositoryEvaluationProgress(repo.FullName, RepositoryEvaluationStage.Pending))
 			.ToArray();
 		var progressLock = new object();
-		var results = Array.Empty<AiReadinessReport>();
+		var batch = RepositoryEvaluationBatch.Empty;
 
 		await AnsiConsole.Live(RenderProgressTable(progress, maxParallelism))
 			.AutoClear(false)
 			.StartAsync(async ctx =>
 			{
-				results = [.. await EvaluateRepositoriesAsync(
+				batch = await EvaluateRepositoriesBatchAsync(
 					repositories,
 					evidenceSource,
 					judge,
@@ -179,13 +193,13 @@ public static class AppRunner
 							ctx.Refresh();
 						}
 					},
-					cancellationToken)];
+					cancellationToken);
 			});
 
-		return results;
+		return batch;
 	}
 
-	private static Task<IReadOnlyList<AiReadinessReport>> EvaluateWithLineProgressAsync(
+	private static Task<RepositoryEvaluationBatch> EvaluateWithLineProgressAsync(
 		IReadOnlyList<RepositorySlug> repositories,
 		IRepositoryEvidenceSource evidenceSource,
 		AgentFrameworkRepoJudge judge,
@@ -193,7 +207,7 @@ public static class AppRunner
 		CancellationToken cancellationToken)
 	{
 		Console.WriteLine($"Evaluating {repositories.Count} repositories with up to {maxParallelism} parallel workers...");
-		return EvaluateRepositoriesAsync(
+		return EvaluateRepositoriesBatchAsync(
 			repositories,
 			evidenceSource,
 			judge,
@@ -210,7 +224,27 @@ public static class AppRunner
 		Action<int, RepositoryEvaluationStage>? updateStatus,
 		CancellationToken cancellationToken)
 	{
+		var batch = await EvaluateRepositoriesBatchAsync(
+			repositories,
+			evidenceSource,
+			judge,
+			maxParallelism,
+			updateStatus,
+			cancellationToken);
+
+		return batch.Reports;
+	}
+
+	internal static async Task<RepositoryEvaluationBatch> EvaluateRepositoriesBatchAsync(
+		IReadOnlyList<RepositorySlug> repositories,
+		IRepositoryEvidenceSource evidenceSource,
+		AgentFrameworkRepoJudge judge,
+		int maxParallelism,
+		Action<int, RepositoryEvaluationStage>? updateStatus,
+		CancellationToken cancellationToken)
+	{
 		var results = new AiReadinessReport?[repositories.Count];
+		var failures = new RepositoryEvaluationFailure?[repositories.Count];
 		await Parallel.ForEachAsync(
 			Enumerable.Range(0, repositories.Count),
 			new ParallelOptions
@@ -221,24 +255,86 @@ public static class AppRunner
 			async (index, ct) =>
 			{
 				var repo = repositories[index];
+				var currentStage = RepositoryEvaluationStage.Pending;
 				try
 				{
-					updateStatus?.Invoke(index, RepositoryEvaluationStage.CollectingEvidence);
+					currentStage = RepositoryEvaluationStage.CollectingEvidence;
+					updateStatus?.Invoke(index, currentStage);
 					var evidence = await evidenceSource.CollectAsync(repo, ct);
 
-					updateStatus?.Invoke(index, RepositoryEvaluationStage.Judging);
+					currentStage = RepositoryEvaluationStage.Judging;
+					updateStatus?.Invoke(index, currentStage);
 					results[index] = await judge.EvaluateAsync(evidence, ct);
 
 					updateStatus?.Invoke(index, RepositoryEvaluationStage.Done);
 				}
-				catch
+				catch (Exception ex) when (ex is not OperationCanceledException || !ct.IsCancellationRequested)
 				{
 					updateStatus?.Invoke(index, RepositoryEvaluationStage.Failed);
-					throw;
+					failures[index] = CreateFailure(repo, currentStage, ex);
 				}
 			});
 
-		return results.Select(report => report ?? throw new InvalidOperationException("Repository evaluation did not produce a report.")).ToList();
+		return new RepositoryEvaluationBatch(
+			results.Where(static report => report is not null).Select(static report => report!).ToList(),
+			failures.Where(static failure => failure is not null).Select(static failure => failure!).ToList());
+	}
+
+	internal static int DetermineExitCode(RepositoryEvaluationBatch batch, int minScore)
+	{
+		if (batch.Failures.Count > 0)
+		{
+			var distinctFailureExitCodes = batch.Failures
+				.Select(static failure => failure.ExitCode)
+				.Distinct()
+				.ToArray();
+			return distinctFailureExitCodes.Length == 1 ? distinctFailureExitCodes[0] : 5;
+		}
+
+		var lowestScore = batch.Reports.Count == 0 ? 0 : batch.Reports.Min(static report => report.OverallScore);
+		return lowestScore >= minScore ? 0 : 1;
+	}
+
+	private static RepositoryEvaluationFailure CreateFailure(RepositorySlug repo, RepositoryEvaluationStage stage, Exception exception) =>
+		new(
+			repo.FullName,
+			StageText(stage),
+			MapFailureExitCode(exception),
+			exception.GetType().Name,
+			FormatFailureMessage(exception));
+
+	private static int MapFailureExitCode(Exception exception) =>
+		exception switch
+		{
+			RateLimitExceededException => 3,
+			NotFoundException => 4,
+			ApiException => 5,
+			CopilotBackendException => 6,
+			_ => 5
+		};
+
+	private static string FormatFailureMessage(Exception exception)
+	{
+		var message = exception switch
+		{
+			RateLimitExceededException ex => $"GitHub API rate limit exceeded. Retry after {ex.GetRetryAfterTimeSpan()} or pass --github-token/--token with a PAT.",
+			NotFoundException ex => $"GitHub repository or evidence path not found: {ex.Message}",
+			ApiException ex => $"GitHub API request failed: {ex.Message}",
+			CopilotBackendException ex when ex.InnerException is not null => $"{ex.Message} Underlying Copilot error: {ex.InnerException.Message}",
+			_ => exception.Message
+		};
+
+		return string.IsNullOrWhiteSpace(message)
+			? "Repository evaluation failed."
+			: message.ReplaceLineEndings(" ").Trim();
+	}
+
+	private static void WriteFailureDiagnostics(IReadOnlyList<RepositoryEvaluationFailure> failures)
+	{
+		foreach (var failure in failures)
+		{
+			Console.Error.WriteLine($"{failure.Repo}: {failure.Stage} failed ({failure.ErrorType}, exit {failure.ExitCode}): {failure.Message}");
+		}
 	}
 
 	internal static string StageMarkup(RepositoryEvaluationStage stage) =>
@@ -267,6 +363,13 @@ public static class AppRunner
 }
 
 internal sealed record RepositoryEvaluationProgress(string Repository, RepositoryEvaluationStage Stage);
+
+internal sealed record RepositoryEvaluationBatch(
+	IReadOnlyList<AiReadinessReport> Reports,
+	IReadOnlyList<RepositoryEvaluationFailure> Failures)
+{
+	public static RepositoryEvaluationBatch Empty { get; } = new([], []);
+}
 
 internal enum RepositoryEvaluationStage
 {

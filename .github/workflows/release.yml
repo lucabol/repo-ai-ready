@@ -41,13 +41,67 @@ jobs:
       - name: Pack
         run: dotnet pack src/RepoAIReady/RepoAIReady.csproj --configuration Release --no-build --output artifacts/nupkg /p:PackageVersion=${{ env.PACKAGE_VERSION }} /p:ContinuousIntegrationBuild=true
 
-      - name: Smoke test tool package
+      - name: Verify package contents
         shell: bash
         run: |
           set -euo pipefail
-          tool_path="$(mktemp -d)"
+          package="$(find artifacts/nupkg -name 'RepoAIReady*.nupkg' -print -quit)"
+          python - "$package" <<'PY'
+          import sys
+          import zipfile
+
+          package = sys.argv[1]
+          with zipfile.ZipFile(package) as archive:
+              names = set(archive.namelist())
+
+          required_suffixes = [
+              "README.md",
+              "LICENSE",
+              "tools/net9.0/any/ai-readiness-llm-judge.md",
+              "tools/net9.0/any/runtimes/win-x64/native/copilot.exe",
+          ]
+          missing = [suffix for suffix in required_suffixes if not any(name.endswith(suffix) for name in names)]
+          if missing:
+              raise SystemExit(f"Package is missing expected entries: {missing}")
+
+          copilot_entries = [
+              name for name in names
+              if "/runtimes/" in name and (name.endswith("/native/copilot") or name.endswith("/native/copilot.exe"))
+          ]
+          unsupported = [name for name in copilot_entries if "/runtimes/win-x64/native/copilot.exe" not in name]
+          if unsupported:
+              raise SystemExit(f"Unexpected Copilot CLI runtime entries: {unsupported}")
+          PY
+
+      - name: Smoke test tool package
+        shell: bash
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          tool_path="$PWD/artifacts/tool-smoke"
+          smoke_output="$PWD/artifacts/smoke-output"
+          rm -rf "$tool_path" "$smoke_output"
+          mkdir -p "$tool_path" "$smoke_output"
           dotnet tool install RepoAIReady --tool-path "$tool_path" --add-source artifacts/nupkg --no-cache --version "$PACKAGE_VERSION"
-          "$tool_path/repo-ai-ready" --version
+          "$tool_path/repo-ai-ready" "$GITHUB_REPOSITORY" --backend deterministic --format json --output "$smoke_output" --github-token "$GITHUB_TOKEN" --parallelism 1 --min-score 0
+          python - "$smoke_output" "$GITHUB_REPOSITORY" <<'PY'
+          import json
+          import sys
+          from pathlib import Path
+
+          root = Path(sys.argv[1])
+          expected_repo = sys.argv[2].lower()
+          reports = list(root.glob("reports-*/aggregate-report.json"))
+          if len(reports) != 1:
+              raise SystemExit(f"Expected one aggregate report, found {len(reports)}")
+
+          data = json.loads(reports[0].read_text(encoding="utf-8"))
+          if len(data) != 1 or data[0].get("repo", "").lower() != expected_repo:
+              raise SystemExit("Smoke report did not evaluate the requested repository")
+          if not isinstance(data[0].get("overall_score"), int):
+              raise SystemExit("Smoke report did not contain an integer overall_score")
+          PY
 
       - name: NuGet login
         id: nuget-login

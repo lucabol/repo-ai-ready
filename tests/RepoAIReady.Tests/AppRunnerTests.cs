@@ -2,6 +2,7 @@ using RepoAIReady;
 using RepoAIReady.Agent;
 using RepoAIReady.Cli;
 using RepoAIReady.GitHub;
+using RepoAIReady.Reporting;
 using RepoAIReady.Rules;
 
 namespace RepoAIReady.Tests;
@@ -105,6 +106,70 @@ public sealed class AppRunnerTests
 	}
 
 	[Fact]
+	public async Task EvaluateRepositoriesBatchAsync_PreservesSuccessfulReportsWhenOneRepositoryFails()
+	{
+		var repositories = new[]
+		{
+			new RepositorySlug("example", "one"),
+			new RepositorySlug("example", "broken"),
+			new RepositorySlug("example", "two")
+		};
+		var stages = new List<(int Index, RepositoryEvaluationStage Stage)>();
+		var judge = new AgentFrameworkRepoJudge(
+			"# AI Readiness Repository Judge",
+			new RuleBasedReadinessChatClient(new RuleBasedReadinessEvaluator()));
+
+		var batch = await AppRunner.EvaluateRepositoriesBatchAsync(
+			repositories,
+			new FailingEvidenceSource("example/broken"),
+			judge,
+			maxParallelism: 1,
+			(index, stage) => stages.Add((index, stage)),
+			CancellationToken.None);
+
+		Assert.Equal(["example/one", "example/two"], batch.Reports.Select(report => report.Repo).ToArray());
+		var failure = Assert.Single(batch.Failures);
+		Assert.Equal("example/broken", failure.Repo);
+		Assert.Equal("Processing evidence...", failure.Stage);
+		Assert.Equal(5, failure.ExitCode);
+		Assert.Equal(nameof(InvalidOperationException), failure.ErrorType);
+		Assert.Contains("boom", failure.Message, StringComparison.Ordinal);
+
+		Assert.Equal(
+			[
+				RepositoryEvaluationStage.CollectingEvidence,
+				RepositoryEvaluationStage.Judging,
+				RepositoryEvaluationStage.Done
+			],
+			stages.Where(item => item.Index == 0).Select(item => item.Stage).ToArray());
+		Assert.Equal(
+			[
+				RepositoryEvaluationStage.CollectingEvidence,
+				RepositoryEvaluationStage.Failed
+			],
+			stages.Where(item => item.Index == 1).Select(item => item.Stage).ToArray());
+		Assert.Equal(
+			[
+				RepositoryEvaluationStage.CollectingEvidence,
+				RepositoryEvaluationStage.Judging,
+				RepositoryEvaluationStage.Done
+			],
+			stages.Where(item => item.Index == 2).Select(item => item.Stage).ToArray());
+	}
+
+	[Fact]
+	public void DetermineExitCode_ReturnsFailureCodeWhenAnyRepositoryFails()
+	{
+		var batch = new RepositoryEvaluationBatch(
+			[ReportFor("example/ready", overallScore: 100)],
+			[new RepositoryEvaluationFailure("example/missing", "Processing evidence...", 4, "NotFoundException", "not found")]);
+
+		var exitCode = AppRunner.DetermineExitCode(batch, minScore: 100);
+
+		Assert.Equal(4, exitCode);
+	}
+
+	[Fact]
 	public void StageMarkup_UsesDistinctLabelsForWorkStates()
 	{
 		Assert.Contains("Processing evidence", AppRunner.StageMarkup(RepositoryEvaluationStage.CollectingEvidence));
@@ -173,4 +238,53 @@ public sealed class AppRunnerTests
 			return new CollectedRepositoryEvidence(repository, metadata, files, []);
 		}
 	}
+
+	private sealed class FailingEvidenceSource(string failingRepository) : IRepositoryEvidenceSource
+	{
+		public Task<CollectedRepositoryEvidence> CollectAsync(RepositorySlug repository, CancellationToken cancellationToken)
+		{
+			if (repository.FullName.Equals(failingRepository, StringComparison.Ordinal))
+			{
+				throw new InvalidOperationException("boom while collecting evidence");
+			}
+
+			return Task.FromResult(EvidenceFor(repository));
+		}
+	}
+
+	private static CollectedRepositoryEvidence EvidenceFor(RepositorySlug repository)
+	{
+		var metadata = new RepositoryMetadata(
+			repository.FullName,
+			"Test repository",
+			"main",
+			$"https://github.com/{repository.FullName}",
+			"C#",
+			IsPrivate: false,
+			DateTimeOffset.UtcNow);
+		var files = new[]
+		{
+			new EvidenceFile("README.md", "file", "# Test", $"https://github.com/{repository.FullName}/blob/main/README.md", "sha", Truncated: false)
+		};
+
+		return new CollectedRepositoryEvidence(repository, metadata, files, []);
+	}
+
+	private static AiReadinessReport ReportFor(string repo, int overallScore) =>
+		new(
+			repo,
+			"test",
+			overallScore,
+			new(
+				Score(20),
+				Score(20),
+				Score(20),
+				Score(20),
+				Score(20)),
+			[],
+			[],
+			[]);
+
+	private static FundamentalScore Score(int score) =>
+		new(score, [], []);
 }

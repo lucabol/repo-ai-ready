@@ -38,6 +38,6 @@ public sealed class AgentFrameworkRepoJudge(string rubric, IChatClient chatClien
 			new ChatClientAgentRunOptions(new ChatOptions()),
 			cancellationToken);
 
-		return response.Result;
+		return AiReadinessReportValidator.Normalize(response.Result, evidence.FullName);
 	}
 }

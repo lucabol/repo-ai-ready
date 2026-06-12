@@ -44,6 +44,29 @@ public sealed class GitHubRepositoryEvidenceSourceTests
 		Assert.False(GitHubRepositoryEvidenceSource.ShouldFetchDirectoryTree(docsDirectory));
 	}
 
+	[Theory]
+	[InlineData("RepoAIReady.sln")]
+	[InlineData("src/RepoAIReady/RepoAIReady.csproj")]
+	[InlineData("tests/RepoAIReady.Tests/RepoAIReady.Tests.csproj")]
+	[InlineData("docs/setup/README.md")]
+	[InlineData(".github/workflows/ci.yml")]
+	[InlineData(".github/instructions/dotnet.instructions.md")]
+	public void ShouldTrackTreeFile_IncludesNestedManifestsDocsAndAutomation(string path)
+	{
+		Assert.True(GitHubRepositoryEvidenceSource.ShouldTrackTreeFile(path));
+	}
+
+	[Theory]
+	[InlineData("src/RepoAIReady/RepoAIReady.csproj")]
+	[InlineData("tests/RepoAIReady.Tests/RepoAIReady.Tests.csproj")]
+	[InlineData("docs/setup/validation.md")]
+	[InlineData(".github/workflows/ci.yml")]
+	[InlineData(".github/copilot-instructions.md")]
+	public void ShouldFetchTreeFileContent_FetchesCommandBearingFiles(string path)
+	{
+		Assert.True(GitHubRepositoryEvidenceSource.ShouldFetchTreeFileContent(path));
+	}
+
 	[Fact]
 	public void SkillReferencedPaths_ResolvesRepositoryRelativeLinks()
 	{

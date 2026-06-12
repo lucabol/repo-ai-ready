@@ -17,7 +17,7 @@ RepoAIReady is a .NET command-line tool that evaluates GitHub repositories for A
 
 - .NET SDK installed so you can install and run the tool with `dotnet tool`.
 - Access to a judge backend:
-  - Default `copilot` backend: a logged-in GitHub Copilot CLI/SDK account, or `COPILOT_TOKEN`/`GITHUB_COPILOT_TOKEN` set.
+  - Default `copilot` backend: a logged-in GitHub Copilot CLI/SDK account, or `COPILOT_TOKEN`/`GITHUB_COPILOT_TOKEN` set; the packaged tool currently supports this backend only on Windows x64.
   - `openai` backend: `OPENAI_API_KEY` set, with `OPENAI_ENDPOINT` if you use an OpenAI-compatible service such as Azure OpenAI.
   - `deterministic` backend: no LLM credentials required; useful for offline smoke tests and CI.
 - Optional `GITHUB_TOKEN` or `GH_TOKEN` for collecting repository evidence from private repositories or to avoid unauthenticated GitHub API rate limits.
@@ -87,9 +87,15 @@ Backends:
 
 | Backend | Description |
 |---|---|
-| `copilot` | Default. Uses the GitHub Copilot SDK. |
+| `copilot` | Default. Uses the GitHub Copilot SDK with the bundled Windows x64 Copilot CLI. |
 | `openai` | Uses OpenAI-compatible chat completions. |
 | `deterministic` | Offline heuristic evaluator for local smoke tests and CI. |
+
+### Copilot packaged-tool platform support
+
+The NuGet package currently bundles the GitHub Copilot CLI native binary only for Windows x64 (`runtimes/win-x64/native/copilot.exe`). The default `copilot` backend is therefore supported by the packaged tool only on Windows x64; on Linux, macOS, or Windows ARM64, use `--backend deterministic` for offline heuristic judging or `--backend openai` for OpenAI-compatible judging. Unsupported Copilot platforms fail with an explicit error instead of silently implying cross-platform Copilot startup.
+
+During `dotnet pack`, the project downloads `@github/copilot-win32-x64` from `registry.npmjs.org` using the `CopilotCliVersion` supplied by the GitHub Copilot SDK package. The current pack target does not pin an additional SHA-256 checksum, so pack and release should run only in trusted CI; the workflows verify the expected package entries and run an installed-tool deterministic smoke evaluation before publishing.
 
 ## Development
 
@@ -105,10 +111,12 @@ Package and smoke-test the tool:
 
 ```powershell
 dotnet pack src\RepoAIReady\RepoAIReady.csproj --configuration Release --output artifacts\nupkg
-$toolPath = Join-Path $env:TEMP "repo-ai-ready-tool-test"
+$toolPath = Join-Path (Resolve-Path artifacts).Path "tool-smoke"
+$smokeOutput = Join-Path (Resolve-Path artifacts).Path "smoke-output"
+Remove-Item -Recurse -Force $toolPath, $smokeOutput -ErrorAction SilentlyContinue
 dotnet tool install RepoAIReady --tool-path $toolPath --add-source artifacts\nupkg --no-cache
-& (Join-Path $toolPath "repo-ai-ready") --help
-Remove-Item -Recurse -Force $toolPath
+& (Join-Path $toolPath "repo-ai-ready") lucabol/repo-ai-ready --backend deterministic --format json --output $smokeOutput --parallelism 1
+Get-ChildItem $smokeOutput -Recurse -Filter aggregate-report.json
 ```
 
 ## Releases

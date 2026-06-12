@@ -1,8 +1,10 @@
 using System.ComponentModel;
 using System.Globalization;
 using System.Runtime.CompilerServices;
+using System.Runtime.InteropServices;
 using System.Text;
 using GitHub.Copilot;
+using GitHub.Copilot.Rpc;
 using Microsoft.Extensions.AI;
 
 namespace RepoAIReady.Agent;
@@ -16,6 +18,8 @@ public sealed class GitHubCopilotChatClient(string? copilotToken, string? model,
 		ChatOptions? options = null,
 		CancellationToken cancellationToken = default)
 	{
+		EnsureBundledCopilotCliPlatformSupported();
+
 		var prompt = BuildPrompt(messages);
 		var clientOptions = new CopilotClientOptions
 		{
@@ -36,7 +40,7 @@ public sealed class GitHubCopilotChatClient(string? copilotToken, string? model,
 				ClientName = "RepoAIReady",
 				Model = string.IsNullOrWhiteSpace(model) ? null : model,
 				WorkingDirectory = workingDirectory,
-				OnPermissionRequest = PermissionHandler.ApproveAll,
+				OnPermissionRequest = DenyPermissionRequestAsync,
 				Streaming = false
 			}, cancellationToken);
 
@@ -130,7 +134,32 @@ public sealed class GitHubCopilotChatClient(string? copilotToken, string? model,
 	}
 
 	private static CopilotBackendException CreateStartupException(Exception ex) =>
-		new("GitHub Copilot is the default judge backend and uses your logged-in Copilot CLI/SDK account unless --copilot-token or COPILOT_TOKEN is set. It could not start a Copilot session. Check the underlying error below; if you only need offline heuristic judging, use --backend deterministic.", ex);
+		new("GitHub Copilot is the default judge backend. RepoAIReady's packaged tool currently bundles the GitHub Copilot CLI only for Windows x64, where it uses your logged-in Copilot CLI/SDK account unless --copilot-token or COPILOT_TOKEN is set. It could not start a Copilot session. Check the underlying error below; if you only need offline heuristic judging, use --backend deterministic.", ex);
+
+	internal const string PermissionDeniedFeedback =
+		"RepoAIReady runs Copilot repository judging in a non-interactive, read-only mode. Permission-gated tool access is disabled; use only the repository evidence already provided in the prompt.";
+
+#pragma warning disable GHCP001 // Permission decisions are required to deny SDK permission requests explicitly.
+	internal static Task<PermissionDecision> DenyPermissionRequestAsync(PermissionRequest _request, PermissionInvocation _invocation) =>
+		Task.FromResult(PermissionDecision.Reject(PermissionDeniedFeedback));
+#pragma warning restore GHCP001
+
+	internal static void EnsureBundledCopilotCliPlatformSupported()
+	{
+		if (!IsBundledCopilotCliPlatformSupported())
+		{
+			throw new CopilotBackendException(UnsupportedBundledCopilotCliPlatformMessage(RuntimeInformation.OSDescription, RuntimeInformation.ProcessArchitecture));
+		}
+	}
+
+	internal static bool IsBundledCopilotCliPlatformSupported() =>
+		IsBundledCopilotCliPlatformSupported(RuntimeInformation.IsOSPlatform(OSPlatform.Windows), RuntimeInformation.ProcessArchitecture);
+
+	internal static bool IsBundledCopilotCliPlatformSupported(bool isWindows, Architecture processArchitecture) =>
+		isWindows && processArchitecture == Architecture.X64;
+
+	internal static string UnsupportedBundledCopilotCliPlatformMessage(string osDescription, Architecture processArchitecture) =>
+		$"RepoAIReady's packaged Copilot backend currently bundles the GitHub Copilot CLI only for Windows x64 (win-x64), but this process is running on {osDescription} ({processArchitecture}). Use --backend deterministic for offline heuristic judging, --backend openai for OpenAI-compatible judging, or run the Copilot backend from Windows x64 until additional Copilot CLI runtimes are packaged.";
 
 	private static bool IsCopilotConnectionException(Exception ex) =>
 		ex.GetType().FullName is "GitHub.Copilot.ConnectionLostException" or "GitHub.Copilot.RemoteRpcException";
