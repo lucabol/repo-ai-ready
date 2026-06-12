@@ -705,12 +705,51 @@ public sealed class RuleBasedReadinessEvaluator
 		return topLevelDirectories >= 20 ? "large_repo" : "single_repo";
 	}
 
-	private static IReadOnlyList<string> TopStrengths(FundamentalsBlock fundamentals) =>
-		FundamentalPairs(fundamentals)
+	private static IReadOnlyList<string> TopStrengths(FundamentalsBlock fundamentals)
+	{
+		var strengths = FundamentalPairs(fundamentals)
 			.OrderByDescending(p => p.Score.Score)
 			.Take(3)
-			.Select(p => $"{p.Name}: {p.Score.Evidence.FirstOrDefault() ?? "No specific evidence."}")
+			.Select(p => StrengthText(p.Name, p.Score))
 			.ToList();
+		var aiContextStrength = AiContextCustomizationStrength(fundamentals.AiContext);
+		if (aiContextStrength is null)
+		{
+			return strengths;
+		}
+
+		var existingAiContext = strengths.FindIndex(s => s.StartsWith("AI Context:", StringComparison.Ordinal));
+		if (existingAiContext >= 0)
+		{
+			strengths[existingAiContext] = aiContextStrength;
+		}
+		else if (strengths.Count >= 3)
+		{
+			strengths[^1] = aiContextStrength;
+		}
+		else
+		{
+			strengths.Add(aiContextStrength);
+		}
+
+		return strengths;
+	}
+
+	private static string StrengthText(string name, FundamentalScore score) =>
+		$"{name}: {score.Evidence.FirstOrDefault() ?? "No specific evidence."}";
+
+	private static string? AiContextCustomizationStrength(FundamentalScore aiContext)
+	{
+		var hasSkills = aiContext.Evidence.Any(e => e.Contains("Agent Skills", StringComparison.OrdinalIgnoreCase));
+		var hasMcp = aiContext.Evidence.Any(e => e.Contains("MCP", StringComparison.OrdinalIgnoreCase));
+		return (hasSkills, hasMcp) switch
+		{
+			(true, true) => "AI Context: valid Agent Skills and MCP server configuration are present alongside repo guidance.",
+			(true, false) => "AI Context: valid Agent Skills are present alongside repo guidance.",
+			(false, true) => "AI Context: valid MCP server configuration is present alongside repo guidance.",
+			_ => null
+		};
+	}
 
 	private static IReadOnlyList<string> TopImprovements(FundamentalsBlock fundamentals) =>
 		FundamentalPairs(fundamentals)

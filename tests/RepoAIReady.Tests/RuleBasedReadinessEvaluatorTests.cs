@@ -70,7 +70,34 @@ public sealed class RuleBasedReadinessEvaluatorTests
 
 		Assert.Contains(report.Fundamentals.AiContext.Evidence, e => e.Contains("Valid Agent Skills", StringComparison.Ordinal));
 		Assert.Contains(report.Fundamentals.AiContext.Evidence, e => e.Contains("Valid MCP configuration", StringComparison.Ordinal));
+		Assert.Contains(report.TopStrengths, s => s.Contains("Agent Skills and MCP server configuration", StringComparison.Ordinal));
 		Assert.DoesNotContain(report.Fundamentals.AiContext.Gaps, g => g.Contains("missing skill resource", StringComparison.OrdinalIgnoreCase));
+	}
+
+	[Fact]
+	public void Evaluate_AcceptsSkillLinksToFetchedRepositoryFiles()
+	{
+		var report = new RuleBasedReadinessEvaluator().Evaluate(
+			"rubric",
+			Evidence(
+				File("README.md", "# Project"),
+				Dir("src"),
+				File("src/testPlan.md", "# Test plan"),
+				Dir(".github"),
+				File(".github/copilot-instructions.md", "Run dotnet build and dotnet test before finishing changes."),
+				Dir(".github/skills"),
+				Dir(".github/skills/test-debugging"),
+				File(".github/skills/test-debugging/SKILL.md", """
+					---
+					name: test-debugging
+					description: Guide for debugging failing tests. Use when asked to diagnose or fix test failures.
+					---
+
+					Read [the test plan](../../../src/testPlan.md) before changing tests.
+					""")));
+
+		Assert.Contains(report.Fundamentals.AiContext.Evidence, e => e.Contains("Valid Agent Skills", StringComparison.Ordinal));
+		Assert.DoesNotContain(report.Fundamentals.AiContext.Gaps, g => g.Contains("../../../src/testPlan.md", StringComparison.OrdinalIgnoreCase));
 	}
 
 	[Fact]

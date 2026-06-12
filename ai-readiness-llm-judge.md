@@ -438,6 +438,7 @@ Prefer splitting unrelated facts into separate items over creating a long compou
 
 - Be evidence-based and cite paths.
 - Prefer concrete commands, files, and workflows over general impressions.
+- When valid Agent Skills or MCP server configuration are present, mention them explicitly in AI Context evidence and in top strengths or the concise summary.
 - Score conservatively when evidence is absent.
 - Do not assume a framework default is present unless the repo exposes it through files or scripts.
 - Distinguish "has a tool" from "agents can use the tool effectively."

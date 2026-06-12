@@ -28,6 +28,7 @@ public sealed class JudgeRubricTests
 		Assert.Contains("hardcoded secrets", rubric, StringComparison.Ordinal);
 		Assert.Contains("least-privilege tool exposure", rubric, StringComparison.Ordinal);
 		Assert.Contains("Do not penalize repositories for lacking custom Skills or MCP servers", rubric, StringComparison.Ordinal);
+		Assert.Contains("mention them explicitly in AI Context evidence and in top strengths or the concise summary", rubric, StringComparison.Ordinal);
 	}
 
 	private static string FindRubricPath()

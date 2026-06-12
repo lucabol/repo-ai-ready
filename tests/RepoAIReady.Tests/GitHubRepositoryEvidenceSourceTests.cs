@@ -43,4 +43,31 @@ public sealed class GitHubRepositoryEvidenceSourceTests
 
 		Assert.False(GitHubRepositoryEvidenceSource.ShouldFetchDirectoryTree(docsDirectory));
 	}
+
+	[Fact]
+	public void SkillReferencedPaths_ResolvesRepositoryRelativeLinks()
+	{
+		var skill = new EvidenceFile(
+			".github/skills/otel/SKILL.md",
+			"file",
+			"""
+			---
+			name: otel
+			description: OpenTelemetry guidance. Use when changing telemetry.
+			---
+
+			Read [monitoring](../../../extensions/copilot/docs/monitoring/agent_monitoring.md),
+			[local reference](references/details.md), [external](https://example.test/doc), and [anchor](#section).
+			""",
+			"https://example.test/skill",
+			"sha",
+			Truncated: false);
+
+		var paths = GitHubRepositoryEvidenceSource.SkillReferencedPaths(skill);
+
+		Assert.Contains("extensions/copilot/docs/monitoring/agent_monitoring.md", paths);
+		Assert.Contains(".github/skills/otel/references/details.md", paths);
+		Assert.DoesNotContain(paths, path => path.Contains("example.test", StringComparison.OrdinalIgnoreCase));
+		Assert.DoesNotContain(paths, path => path.StartsWith("#", StringComparison.Ordinal));
+	}
 }

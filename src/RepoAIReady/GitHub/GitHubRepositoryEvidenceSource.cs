@@ -1,5 +1,6 @@
 using Octokit;
 using RepoAIReady.Cli;
+using System.Text.RegularExpressions;
 
 namespace RepoAIReady.GitHub;
 
@@ -115,6 +116,8 @@ public sealed class GitHubRepositoryEvidenceSource : IRepositoryEvidenceSource
 				}
 			}
 		}
+
+		await AddSkillReferencedFilesAsync(repository, files, cancellationToken);
 
 		var metadata = new RepositoryMetadata(
 			repo.FullName,
@@ -235,4 +238,115 @@ public sealed class GitHubRepositoryEvidenceSource : IRepositoryEvidenceSource
 		(evidence.Path.StartsWith(".github/skills/", StringComparison.OrdinalIgnoreCase) ||
 		 evidence.Path.StartsWith(".claude/skills/", StringComparison.OrdinalIgnoreCase) ||
 		 evidence.Path.StartsWith(".agents/skills/", StringComparison.OrdinalIgnoreCase));
+
+	private async Task AddSkillReferencedFilesAsync(
+		RepositorySlug repository,
+		IDictionary<string, EvidenceFile> files,
+		CancellationToken cancellationToken)
+	{
+		var paths = files.Values
+			.Where(IsSkillFile)
+			.SelectMany(SkillReferencedPaths)
+			.Where(path => !files.ContainsKey(path))
+			.Distinct(StringComparer.OrdinalIgnoreCase)
+			.Take(200)
+			.ToList();
+
+		foreach (var path in paths)
+		{
+			cancellationToken.ThrowIfCancellationRequested();
+			try
+			{
+				var contents = await _client.Repository.Content.GetAllContents(repository.Owner, repository.Name, path);
+				if (contents.Count == 1 && contents[0].Path.Equals(path, StringComparison.OrdinalIgnoreCase))
+				{
+					AddOrReplaceWithRicherEvidence(files, ToEvidenceFile(contents[0], path));
+				}
+				else if (contents.Count > 0)
+				{
+					AddOrReplaceWithRicherEvidence(files, new EvidenceFile(path, "dir", null, contents[0].HtmlUrl, contents[0].Sha, Truncated: false));
+					foreach (var child in contents.Take(40))
+					{
+						AddOrReplaceWithRicherEvidence(files, await ToEvidenceFileAsync(repository, child, path));
+					}
+				}
+			}
+			catch (NotFoundException)
+			{
+			}
+		}
+	}
+
+	internal static IReadOnlyList<string> SkillReferencedPaths(EvidenceFile skill)
+	{
+		if (!IsSkillFile(skill) || string.IsNullOrWhiteSpace(skill.Content))
+		{
+			return [];
+		}
+
+		var skillDirectory = DirectoryName(skill.Path);
+		return FindRelativeMarkdownLinks(skill.Content)
+			.Select(path => CombineRepositoryPath(skillDirectory, path))
+			.Where(path => path is not null)
+			.Cast<string>()
+			.Distinct(StringComparer.OrdinalIgnoreCase)
+			.ToList();
+	}
+
+	private static bool IsSkillFile(EvidenceFile file) =>
+		file.IsFile &&
+		file.Path.EndsWith("/SKILL.md", StringComparison.OrdinalIgnoreCase) &&
+		(file.Path.StartsWith(".github/skills/", StringComparison.OrdinalIgnoreCase) ||
+		 file.Path.StartsWith(".claude/skills/", StringComparison.OrdinalIgnoreCase) ||
+		 file.Path.StartsWith(".agents/skills/", StringComparison.OrdinalIgnoreCase));
+
+	private static IEnumerable<string> FindRelativeMarkdownLinks(string body) =>
+		Regex.Matches(body, @"\[[^\]]+\]\((?<path>[^)#]+)(?:#[^)]+)?\)", RegexOptions.CultureInvariant)
+			.Select(match => match.Groups["path"].Value.Trim())
+			.Select(path => path.Split(' ', 2)[0].Trim('\'', '"'))
+			.Where(path =>
+				path.Length > 0 &&
+				!path.StartsWith("http://", StringComparison.OrdinalIgnoreCase) &&
+				!path.StartsWith("https://", StringComparison.OrdinalIgnoreCase) &&
+				!path.StartsWith("mailto:", StringComparison.OrdinalIgnoreCase) &&
+				!path.StartsWith("#", StringComparison.Ordinal));
+
+	private static string? CombineRepositoryPath(string baseDirectory, string relativePath)
+	{
+		var path = relativePath.Replace('\\', '/');
+		if (path.StartsWith("/", StringComparison.Ordinal))
+		{
+			return null;
+		}
+
+		var segments = new List<string>();
+		foreach (var segment in (baseDirectory + "/" + path).Split('/', StringSplitOptions.RemoveEmptyEntries))
+		{
+			if (segment == ".")
+			{
+				continue;
+			}
+
+			if (segment == "..")
+			{
+				if (segments.Count == 0)
+				{
+					return null;
+				}
+
+				segments.RemoveAt(segments.Count - 1);
+				continue;
+			}
+
+			segments.Add(segment);
+		}
+
+		return string.Join('/', segments);
+	}
+
+	private static string DirectoryName(string path)
+	{
+		var separator = path.LastIndexOf('/');
+		return separator <= 0 ? string.Empty : path[..separator];
+	}
 }
