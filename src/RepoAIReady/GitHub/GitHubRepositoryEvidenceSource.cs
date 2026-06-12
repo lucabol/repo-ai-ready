@@ -20,8 +20,16 @@ public sealed class GitHubRepositoryEvidenceSource : IRepositoryEvidenceSource
 		".github/prompts",
 		".github/skills",
 		".github/agents",
+		".github/mcp.json",
 		".github/workflows",
 		".github/dependabot.yml",
+		".vscode",
+		".vscode/mcp.json",
+		".mcp.json",
+		".claude",
+		".claude/skills",
+		".agents",
+		".agents/skills",
 		".devcontainer",
 		"Dockerfile",
 		"docker-compose.yml",
@@ -91,7 +99,12 @@ public sealed class GitHubRepositoryEvidenceSource : IRepositoryEvidenceSource
 
 				foreach (var content in contents.Take(40))
 				{
-					AddOrReplaceWithRicherEvidence(files, await ToEvidenceFileAsync(repository, content, path));
+					var evidenceFile = await ToEvidenceFileAsync(repository, content, path);
+					AddOrReplaceWithRicherEvidence(files, evidenceFile);
+					if (ShouldFetchDirectoryTree(evidenceFile))
+					{
+						await AddDirectoryTreeAsync(repository, evidenceFile.Path, files, remainingDepth: 2, cancellationToken);
+					}
 				}
 			}
 			catch (NotFoundException)
@@ -175,10 +188,51 @@ public sealed class GitHubRepositoryEvidenceSource : IRepositoryEvidenceSource
 	}
 
 	private static bool ShouldFetchDirectoryChild(string path) =>
+		path.StartsWith(".github/agents/", StringComparison.OrdinalIgnoreCase) ||
 		path.StartsWith(".github/workflows/", StringComparison.OrdinalIgnoreCase) ||
 		path.StartsWith(".github/instructions/", StringComparison.OrdinalIgnoreCase) ||
 		path.StartsWith(".github/prompts/", StringComparison.OrdinalIgnoreCase) ||
 		path.StartsWith(".github/skills/", StringComparison.OrdinalIgnoreCase) ||
+		path.StartsWith(".vscode/", StringComparison.OrdinalIgnoreCase) ||
+		path.StartsWith(".claude/skills/", StringComparison.OrdinalIgnoreCase) ||
+		path.StartsWith(".agents/skills/", StringComparison.OrdinalIgnoreCase) ||
 		path.StartsWith(".devcontainer/", StringComparison.OrdinalIgnoreCase) ||
 		path.EndsWith("/README.md", StringComparison.OrdinalIgnoreCase);
+
+	private async Task AddDirectoryTreeAsync(
+		RepositorySlug repository,
+		string path,
+		IDictionary<string, EvidenceFile> files,
+		int remainingDepth,
+		CancellationToken cancellationToken)
+	{
+		if (remainingDepth <= 0)
+		{
+			return;
+		}
+
+		cancellationToken.ThrowIfCancellationRequested();
+		try
+		{
+			foreach (var content in (await _client.Repository.Content.GetAllContents(repository.Owner, repository.Name, path)).Take(40))
+			{
+				cancellationToken.ThrowIfCancellationRequested();
+				var evidenceFile = await ToEvidenceFileAsync(repository, content, path);
+				AddOrReplaceWithRicherEvidence(files, evidenceFile);
+				if (ShouldFetchDirectoryTree(evidenceFile))
+				{
+					await AddDirectoryTreeAsync(repository, evidenceFile.Path, files, remainingDepth - 1, cancellationToken);
+				}
+			}
+		}
+		catch (NotFoundException)
+		{
+		}
+	}
+
+	internal static bool ShouldFetchDirectoryTree(EvidenceFile evidence) =>
+		evidence.IsDirectory &&
+		(evidence.Path.StartsWith(".github/skills/", StringComparison.OrdinalIgnoreCase) ||
+		 evidence.Path.StartsWith(".claude/skills/", StringComparison.OrdinalIgnoreCase) ||
+		 evidence.Path.StartsWith(".agents/skills/", StringComparison.OrdinalIgnoreCase));
 }

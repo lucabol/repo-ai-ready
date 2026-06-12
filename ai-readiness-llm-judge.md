@@ -212,6 +212,8 @@ AI context gives coding agents repository-specific guidance so they can work wit
 - Instructions tell agents how to build, test, lint, typecheck, and format changes.
 - Instructions identify local pitfalls, generated files, localization rules, security-sensitive areas, or ownership boundaries.
 - Additional context exists where useful, such as prompts, skills, custom agents, MCP configuration, or setup steps.
+- Agent Skills, when present, use valid `SKILL.md` files with clear names, descriptions, use cases, and referenced resources.
+- MCP server configuration, when present, uses the correct schema for its target surface and follows least-privilege and secret-handling practices.
 
 ### Weak evidence
 
@@ -221,6 +223,15 @@ AI context gives coding agents repository-specific guidance so they can work wit
 - One root instruction file tries to cover a large repo without path-specific guidance.
 - AI context conflicts with actual scripts or docs.
 - Instructions are too long, noisy, or unscoped for agents to use effectively.
+- Skill directories exist but do not contain valid `SKILL.md` metadata or reference missing scripts/resources.
+- MCP configuration exists but contains hardcoded secrets, broad tool access, untrusted commands, or unpinned server packages.
+- MCP servers are recommended generically even though the repository does not need external tools, data, or services.
+
+### Skills and MCP expectations
+
+Skills and MCP servers are optional advanced AI-context signals. Award credit when they are present, valid, documented, and useful for the repository's workflows. Do not penalize repositories for lacking custom Skills or MCP servers when repo-wide or scoped instructions, build, validation, and tests are sufficient.
+
+If MCP configuration exists, inspect it for correct schema, least-privilege tool exposure, secret handling, trusted or pinned server packages, and documented setup. If a repository's docs or architecture depend on external systems that agents must inspect or operate, missing MCP/tooling documentation may be a gap.
 
 ### Scoring guidance
 
@@ -269,7 +280,17 @@ docs/
 architecture/
 .github/copilot-instructions.md
 .github/instructions/*.instructions.md
+.github/prompts/*.prompt.md
+.github/agents/*.md
+.github/agents/*.agent.md
+.github/skills/*/SKILL.md
+.claude/skills/*/SKILL.md
+.agents/skills/*/SKILL.md
+.vscode/mcp.json
+.mcp.json
+.github/mcp.json
 .github/workflows/
+.github/workflows/copilot-setup-steps.yml
 .github/dependabot.yml
 .devcontainer/
 Dockerfile
@@ -313,6 +334,13 @@ Apply these penalties within the relevant fundamental:
 - Tests cannot be run locally or are too slow without filters: penalize testing.
 - Instructions omit validation commands: penalize AI context.
 - Repo relies on external docs with no local summary: penalize documentation.
+- Skill directory exists but no valid `SKILL.md`: penalize AI context.
+- `SKILL.md` lacks required `name` or `description`, or `name` does not match the parent directory: penalize AI context.
+- Skill references scripts/resources that are missing or undocumented: penalize AI context.
+- MCP config contains hardcoded credentials or broad tokens: penalize AI context and security-related readiness.
+- MCP config uses dangerous shell command patterns, untrusted commands, or unpinned packages: penalize AI context.
+- MCP config exposes all tools where a least-privilege allowlist would be safer: penalize AI context.
+- Repo docs say agents need external systems, but there is no MCP configuration, setup doc, or alternative safe access path: penalize AI context.
 
 ## Output Format
 

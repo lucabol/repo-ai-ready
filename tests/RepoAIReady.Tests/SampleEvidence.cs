@@ -47,7 +47,14 @@ internal static class SampleEvidence
 			File(".github/copilot-instructions.md", "# Copilot Instructions\nRun compile-check and tests."),
 			File(".github/instructions/source.instructions.md", "---\napplyTo: src/**\n---\nLayering rules."),
 			File(".github/prompts/implement.prompt.md", "Implement prompt"),
-			File(".github/skills/unit-tests/SKILL.md", "Unit test skill"),
+			File(".github/skills/unit-tests/SKILL.md", """
+				---
+				name: unit-tests
+				description: Guide for creating and running unit tests. Use when asked to add or debug unit tests.
+				---
+
+				Follow the repository test conventions.
+				"""),
 			File(".github/workflows/copilot-setup-steps.yml", "name: Copilot Setup Steps"),
 			File(".devcontainer/README.md", "Dev container setup")
 		};

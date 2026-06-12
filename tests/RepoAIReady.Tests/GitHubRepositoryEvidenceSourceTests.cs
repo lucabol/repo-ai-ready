@@ -24,4 +24,23 @@ public sealed class GitHubRepositoryEvidenceSourceTests
 
 		Assert.Equal("# Project", files["README.md"].Content);
 	}
+
+	[Theory]
+	[InlineData(".github/skills/test-debugging")]
+	[InlineData(".claude/skills/test-debugging")]
+	[InlineData(".agents/skills/test-debugging")]
+	public void ShouldFetchDirectoryTree_FetchesSkillDirectories(string path)
+	{
+		var skillDirectory = new EvidenceFile(path, "dir", null, "https://example.test/skill", "sha", Truncated: false);
+
+		Assert.True(GitHubRepositoryEvidenceSource.ShouldFetchDirectoryTree(skillDirectory));
+	}
+
+	[Fact]
+	public void ShouldFetchDirectoryTree_IgnoresUnrelatedDirectories()
+	{
+		var docsDirectory = new EvidenceFile("docs", "dir", null, "https://example.test/docs", "sha", Truncated: false);
+
+		Assert.False(GitHubRepositoryEvidenceSource.ShouldFetchDirectoryTree(docsDirectory));
+	}
 }

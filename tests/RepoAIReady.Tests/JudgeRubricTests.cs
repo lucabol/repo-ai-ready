@@ -17,6 +17,19 @@ public sealed class JudgeRubricTests
 		Assert.Contains("uncertainties", rubric, StringComparison.Ordinal);
 	}
 
+	[Fact]
+	public void Rubric_TreatsSkillsAndMcpAsOptionalValidatedContext()
+	{
+		var rubric = File.ReadAllText(FindRubricPath());
+
+		Assert.Contains("Skills and MCP servers are optional advanced AI-context signals", rubric, StringComparison.Ordinal);
+		Assert.Contains(".github/skills/*/SKILL.md", rubric, StringComparison.Ordinal);
+		Assert.Contains(".vscode/mcp.json", rubric, StringComparison.Ordinal);
+		Assert.Contains("hardcoded secrets", rubric, StringComparison.Ordinal);
+		Assert.Contains("least-privilege tool exposure", rubric, StringComparison.Ordinal);
+		Assert.Contains("Do not penalize repositories for lacking custom Skills or MCP servers", rubric, StringComparison.Ordinal);
+	}
+
 	private static string FindRubricPath()
 	{
 		foreach (var start in new[] { Directory.GetCurrentDirectory(), AppContext.BaseDirectory })
